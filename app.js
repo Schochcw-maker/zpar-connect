@@ -305,12 +305,12 @@
   function loginView(sent) {
     return `<div class="card login stack">
       <div><div class="eyebrow">${e(CFG.COMPANY || "ZPar International")}</div><h1>Zpar Connect</h1></div>
-      ${sent ? `<p class="lead">We emailed a sign-in link to <b>${e(sent)}</b>. Click it to sign in. If your email shows a sign-in code instead, enter it below.</p>
+      ${sent ? `<p class="lead">We emailed a sign-in code to <b>${e(sent)}</b>. Enter it below. It expires in one hour.</p>
         <form id="codeForm" class="stack" style="gap:12px"><label class="f" for="lg_code">Sign-in code<input id="lg_code" inputmode="numeric" autocomplete="one-time-code" maxlength="10" required></label>
         <button class="btn go" type="submit">Sign in</button><div class="err" id="lgErr"></div></form><button class="btn" type="button" data-act="relogin">Use a different email</button>`
-      : `${linkErr() ? `<p class="err" style="margin:0">That sign-in link didn't work (${e(linkErr())}). Request a new link below.</p>` : ""}<p class="meta" style="margin:0">Enter the email address ZPar has on file for your project. We'll email you a sign-in link — no password needed.</p>
+      : `${linkErr() ? `<p class="err" style="margin:0">That sign-in link didn't work (${e(linkErr())}). Request a new code below.</p>` : ""}<p class="meta" style="margin:0">Enter the email address ZPar has on file for your project. We'll email you a sign-in code — no password needed.</p>
         <form id="loginForm" class="stack" style="gap:12px"><label class="f" for="lg_email">Email<input id="lg_email" type="email" autocomplete="email" required></label>
-        <button class="btn go" type="submit">Email me a sign-in link</button><div class="err" id="lgErr"></div></form>`}</div>`;
+        <button class="btn go" type="submit">Email me a sign-in code</button><div class="err" id="lgErr"></div></form>`}</div>`;
   }
 
   // ---------- customer ----------
