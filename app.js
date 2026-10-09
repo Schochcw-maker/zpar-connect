@@ -39,7 +39,7 @@
     app.innerHTML = `<div class="card login"><h1>Setup needed</h1><p class="lead">Add your Supabase URL and anon key to <span class="mono">config.js</span>.</p></div>`;
     return;
   }
-  const sb = window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY, { auth: { persistSession: true, detectSessionInUrl: true, flowType: "pkce" } });
+  const sb = window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY, { auth: { persistSession: true, detectSessionInUrl: true, flowType: "implicit" } });
 
   const S = { session: null, staff: false, orders: [], customers: [], contacts: [], items: [], photos: {}, q: "", show: "Active" };
 
@@ -301,13 +301,16 @@
   }
 
   // ---------- login ----------
+  const linkErr = () => { const m = location.hash.match(/error_description=([^&]+)/); return m ? decodeURIComponent(m[1].replace(/\+/g, " ")) : ""; };
   function loginView(sent) {
     return `<div class="card login stack">
       <div><div class="eyebrow">${e(CFG.COMPANY || "ZPar International")}</div><h1>Zpar Connect</h1></div>
-      ${sent ? `<p class="lead">Check <b>${e(sent)}</b> for a sign-in link. It expires in one hour.</p><button class="btn" type="button" data-act="relogin">Use a different email</button>`
-      : `<p class="meta" style="margin:0">Enter the email address ZPar has on file for your project. We'll email you a sign-in link — no password needed.</p>
+      ${sent ? `<p class="lead">We emailed a sign-in code to <b>${e(sent)}</b>. Enter it below (or click the link in the email on this same device).</p>
+        <form id="codeForm" class="stack" style="gap:12px"><label class="f" for="lg_code">Sign-in code<input id="lg_code" inputmode="numeric" autocomplete="one-time-code" maxlength="10" required></label>
+        <button class="btn go" type="submit">Sign in</button><div class="err" id="lgErr"></div></form><button class="btn" type="button" data-act="relogin">Use a different email</button>`
+      : `${linkErr() ? `<p class="err" style="margin:0">That sign-in link didn't work (${e(linkErr())}). Request a new code below.</p>` : ""}<p class="meta" style="margin:0">Enter the email address ZPar has on file for your project. We'll email you a sign-in code — no password needed.</p>
         <form id="loginForm" class="stack" style="gap:12px"><label class="f" for="lg_email">Email<input id="lg_email" type="email" autocomplete="email" required></label>
-        <button class="btn go" type="submit">Email me a sign-in link</button><div class="err" id="lgErr"></div></form>`}</div>`;
+        <button class="btn go" type="submit">Email me a sign-in code</button><div class="err" id="lgErr"></div></form>`}</div>`;
   }
 
   // ---------- customer ----------
@@ -630,6 +633,15 @@
       btn.disabled = false;
       if (error) { document.getElementById("lgErr").textContent = errMsg(error); return; }
       S.sent = email; render(); return;
+    }
+    if (f.id === "codeForm") {
+      ev.preventDefault();
+      const token = document.getElementById("lg_code").value.replace(/\s/g, "");
+      const btn = f.querySelector("button"); btn.disabled = true;
+      const { error } = await sb.auth.verifyOtp({ email: S.sent, token, type: "email" });
+      btn.disabled = false;
+      if (error) { document.getElementById("lgErr").textContent = errMsg(error); return; }
+      history.replaceState(null, "", location.pathname); return;
     }
     if (f.id === "det") {
       ev.preventDefault();
