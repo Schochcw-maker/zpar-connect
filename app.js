@@ -41,7 +41,7 @@
   }
   const sb = window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY, { auth: { persistSession: true, detectSessionInUrl: true, flowType: "implicit" } });
 
-  const S = { session: null, staff: false, orders: [], customers: [], contacts: [], items: [], photos: {}, q: "", show: "Active" };
+  const S = { session: null, staff: false, orders: [], customers: [], contacts: [], items: [], photos: {}, drawings: {}, dwgForm: {}, q: "", show: "Active" };
 
   // ---------- routing ----------
   const route = () => { const h = location.hash.replace(/^#\/?/, "").split("/"); return { page: h[0] || "", id: h[1] || null }; };
@@ -217,6 +217,72 @@
     }, delay);
   }
 
+  // ---------- Drawings (admins upload; staff, the customer and the assigned Install PM can open) ----------
+  const DWG = "order-drawings";
+  (function () { const st = document.createElement("style"); st.textContent = `
+.dwg{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:flex-start;padding:12px 4px;border-bottom:1px solid var(--line-2)}
+a.btn{text-decoration:none;display:inline-block}
+.dwg-main{flex:1 1 300px;min-width:0;display:flex;flex-direction:column;gap:3px}
+.dwg.old{opacity:.72}
+.dwg-cmt{font-size:13.5px;color:var(--ink-2);background:var(--panel-2);border-radius:6px;padding:6px 10px;margin-top:4px;white-space:pre-wrap}
+.dwg-resp{flex:1 1 100%;display:grid;grid-template-columns:1fr 2fr;gap:10px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--panel-2)}
+.dwg-resp .row{grid-column:1/-1}
+.dwg-up{display:grid;grid-template-columns:2fr 1fr;gap:10px;margin:12px 0 6px;padding:14px;border:1px dashed var(--line);border-radius:10px}
+.dwg-up .full{grid-column:1/-1}
+@media (max-width:560px){.dwg-resp,.dwg-up{grid-template-columns:1fr}}`; document.head.appendChild(st); })();
+  const fmtSize = (n) => (n == null ? "" : n >= 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB");
+  async function loadDrawings(orderId) {
+    const { data, error } = await sb.from("order_drawings").select("*").eq("order_id", orderId).order("created_at", { ascending: false });
+    if (error) { S.drawings[orderId] = []; return; }
+    const rows = data || [];
+    if (rows.length) {
+      const { data: urls } = await sb.storage.from(DWG).createSignedUrls(rows.map((r) => r.path), 3600);
+      const m = new Map((urls || []).map((u) => [u.path, u.signedUrl]));
+      rows.forEach((r) => (r.url = m.get(r.path) || ""));
+    }
+    S.drawings[orderId] = rows;
+  }
+  function dwgPill(d, customer) {
+    if (d.superseded) return `<span class="pill">Superseded</span>`;
+    if (d.status === "approved") return `<span class="pill go">Approved</span>`;
+    if (d.status === "changes") return `<span class="pill bad">Changes requested</span>`;
+    if (d.status === "pending") return `<span class="pill warn">${customer ? "Your approval needed" : "Awaiting customer approval"}</span>`;
+    return `<span class="pill">For reference</span>`;
+  }
+  function dwgRow(d, customer) {
+    const dec = d.decided_at ? `<div class="meta">${d.status === "approved" ? "Approved" : "Changes requested"} by ${e(d.decision_by_name || d.decision_by_email || "")} · ${fmtDT(d.decided_at)}</div>${d.decision_comment ? `<div class="dwg-cmt">${e(d.decision_comment)}</div>` : ""}` : "";
+    const canRespond = customer && d.needs_approval && d.status === "pending" && !d.superseded;
+    const f = S.dwgForm[d.id] || {};
+    return `<div class="dwg ${d.superseded ? "old" : ""}">
+      <div class="dwg-main"><div class="row" style="gap:6px 12px"><b>${e(d.title)}</b>${d.revision ? `<span class="mono meta">Rev ${e(d.revision)}</span>` : ""}${dwgPill(d, customer)}</div>
+        <div class="meta">${e(d.file_name)}${d.size_bytes ? " · " + fmtSize(d.size_bytes) : ""} · uploaded ${fmtD(d.created_at)}</div>${dec}</div>
+      <div class="row" style="gap:8px">${d.url ? `<a class="btn" href="${e(d.url)}" target="_blank" rel="noopener">Open</a>` : ""}${S.manager ? `<button class="btn link" type="button" data-act="rmdwg" data-id="${e(d.id)}">Remove</button>` : ""}</div>
+      ${canRespond ? `<div class="dwg-resp">
+        <label class="f" for="dn_${e(d.id)}">Your name<input id="dn_${e(d.id)}" data-dwgname="${e(d.id)}" value="${e(f.name || "")}" autocomplete="name"></label>
+        <label class="f" for="dc_${e(d.id)}">Comments (required if requesting changes)<textarea id="dc_${e(d.id)}" data-dwgcmt="${e(d.id)}" style="min-height:44px">${e(f.cmt || "")}</textarea></label>
+        <div class="row"><button class="btn go" type="button" data-act="dwgapprove" data-id="${e(d.id)}">Approve drawing</button><button class="btn" type="button" data-act="dwgchanges" data-id="${e(d.id)}">Request changes</button></div></div>` : ""}
+    </div>`;
+  }
+  function drawingsBlock(o, customer) {
+    const list = S.drawings[o.id];
+    if (!S.manager && (!list || !list.length)) return "";
+    const cur = (list || []).filter((d) => !d.superseded), old = (list || []).filter((d) => d.superseded);
+    const pending = cur.filter((d) => d.status === "pending").length, action = customer && pending > 0;
+    const titles = [...new Set((list || []).map((d) => d.title))];
+    const up = S.manager ? `<form id="dwgForm" class="dwg-up" data-order="${e(o.id)}" autocomplete="off">
+        <label class="f" for="dw_title">Drawing title<input id="dw_title" name="title" list="dw_titles" required maxlength="120" placeholder="e.g. General arrangement"></label>
+        <datalist id="dw_titles">${titles.map((t) => `<option value="${e(t)}"></option>`).join("")}</datalist>
+        <label class="f" for="dw_rev">Revision<input id="dw_rev" name="revision" maxlength="20" placeholder="e.g. A"></label>
+        <label class="f full" for="dw_file">File · PDF, DWG, DXF or image, up to 50 MB<input id="dw_file" name="file" type="file" required accept=".pdf,.dwg,.dxf,image/*"></label>
+        <label class="na full" for="dw_appr"><input type="checkbox" id="dw_appr" name="needs_approval">Customer approval required</label>
+        <div class="full row"><button class="btn go" type="submit">Upload drawing</button><span class="meta" id="dw_status">Reusing an existing title uploads a new revision and marks the old one superseded.</span></div></form>` : "";
+    const body = list === undefined ? `<p class="meta">Loading drawings…</p>` : cur.length ? cur.map((d) => dwgRow(d, customer)).join("") : `<p class="meta" style="margin:8px 0 0">No drawings uploaded yet.</p>`;
+    const older = old.length ? `<details style="margin-top:10px"><summary class="btn link">Older revisions (${old.length})</summary>${old.map((d) => dwgRow(d, customer)).join("")}</details>` : "";
+    return `<div class="card ${action ? "action" : ""}" id="drawings"><div class="row"><div class="eyebrow ${action ? "warn-ink" : ""}">${action ? "Action required · " : ""}Drawings</div><span class="sp"></span>${pending ? `<span class="pill warn">${pending} awaiting ${customer ? "your " : "customer "}approval</span>` : ""}</div>
+      ${action ? `<p class="meta" style="margin:6px 0 0">Open each drawing, then approve it or request changes. Your response goes straight to your ZPar project team.</p>` : ""}
+      ${up}${body}${older}</div>`;
+  }
+
   // ---------- Checklist photos ----------
   const BUCKET = "checklist-photos";
   const itemLabel = (k) => { const i = S.items.find((x) => x.key === k); return i ? i.text : "General / discrepancy"; };
@@ -341,6 +407,7 @@
         <div class="bar" style="margin-top:18px" role="progressbar" aria-valuemin="0" aria-valuemax="${LAST}" aria-valuenow="${st}"><i style="width:${(st / LAST) * 100}%"></i></div>
         <div class="row meta" style="margin-top:8px"><span>${dates[st] ? `Since ${fmtD(dates[st])}` : ""}</span><span class="sp"></span><span>${next ? `Next: ${e(next)}` : "Complete"}</span></div>
       </section>
+      ${drawingsBlock(o, true)}
       ${o.customer_signoff ? "" : customerChecklist(o)}
       <div class="two">
         <div class="card"><div class="eyebrow" style="margin-bottom:8px">Milestones</div>
@@ -392,6 +459,7 @@
         <button class="btn" type="button" data-act="back" ${st > 1 ? "" : "disabled"}>Move back</button>
         <button class="btn go" type="button" data-act="adv" ${st < LAST && !(st === 8 && !o.crew_signoff) ? "" : "disabled"}>${st < LAST ? `Advance to ${st + 1}. ${e(STAGES[st].n)}` : "Completed"}</button></div>
         ${st === 8 && !o.crew_signoff ? `<p class="meta" style="margin:10px 0 0">Installation is locked until the customer signs the Job Site Preparation sheet and the crew lead signs the Crew Arrival Checklist.</p>` : ""}</div>
+      ${drawingsBlock(o, false)}
       ${staffChecklist(o)}
       <div class="card"><div class="eyebrow" style="margin-bottom:12px">Order details</div>
         <form id="det" class="grid2">
@@ -604,13 +672,14 @@
   }
 
   // ---------- render ----------
-  let loadedExtrasFor = null, loadingPhotos = null;
+  let loadedExtrasFor = null, loadingPhotos = null, loadingDrawings = null;
   function render() {
     if (!S.session) { app.innerHTML = loginView(S.sent); return; }
     const r = route();
     const active = document.activeElement, fid = active && active.id, pos = active && active.selectionStart;
     const po = S.staff ? (r.page === "order" ? S.orders.find((x) => x.id === r.id) : null) : currentCustomerOrder();
     if (po && S.photos[po.id] === undefined && loadingPhotos !== po.id) { loadingPhotos = po.id; loadPhotos(po.id).then(() => { loadingPhotos = null; render(); }); }
+    if (po && S.drawings[po.id] === undefined && loadingDrawings !== po.id) { loadingDrawings = po.id; loadDrawings(po.id).then(() => { loadingDrawings = null; render(); }); }
     if (!S.staff) app.innerHTML = customerHome();
     else if (r.page === "customers" && !S.ipm) app.innerHTML = staffCustomers();
     else if (r.page === "team" && !S.ipm) app.innerHTML = teamView();
@@ -647,6 +716,23 @@
       btn.disabled = false;
       if (error) { document.getElementById("lgErr").textContent = errMsg(error); return; }
       history.replaceState(null, "", location.pathname); return;
+    }
+    if (f.id === "dwgForm") {
+      ev.preventDefault();
+      if (!S.manager) { toast("Only admins can upload drawings."); return; }
+      const o = S.orders.find((x) => x.id === f.dataset.order); if (!o) return;
+      const fd = new FormData(f), file = fd.get("file"), st = document.getElementById("dw_status"), btn = f.querySelector("button[type=submit]");
+      if (!file || !file.size) { toast("Choose a file to upload."); return; }
+      if (file.size > 52428800) { toast("That file is over 50 MB."); return; }
+      btn.disabled = true; if (st) st.textContent = "Uploading…";
+      const safe = (file.name.replace(/[^A-Za-z0-9._-]+/g, "_").slice(-80)) || "drawing";
+      const path = `${o.id}/${Date.now()}-${safe}`;
+      const up = await sb.storage.from(DWG).upload(path, file, { contentType: file.type || "application/octet-stream", upsert: false });
+      if (up.error) { btn.disabled = false; if (st) st.textContent = ""; toast(errMsg(up.error)); return; }
+      const ins = await sb.from("order_drawings").insert({ order_id: o.id, title: String(fd.get("title") || "").trim(), revision: String(fd.get("revision") || "").trim() || null,
+        path, file_name: file.name, content_type: file.type || null, size_bytes: file.size, needs_approval: fd.get("needs_approval") === "on" });
+      if (ins.error) { await sb.storage.from(DWG).remove([path]); btn.disabled = false; if (st) st.textContent = ""; toast(errMsg(ins.error)); return; }
+      await loadDrawings(o.id); render(); toast("Drawing uploaded."); return;
     }
     if (f.id === "det") {
       ev.preventDefault();
@@ -715,6 +801,21 @@
     const act = a.dataset.act, id = route().id || (S.orders.length === 1 ? S.orders[0].id : null);
     if (act === "signout") { await sb.auth.signOut(); return; }
     if (act === "relogin") { S.sent = null; render(); return; }
+    if (act === "rmdwg") {
+      if (!a.dataset.armed) { a.dataset.armed = "1"; a.textContent = "Confirm remove"; a.style.color = "var(--bad)"; return; }
+      const oid = route().id, d = (S.drawings[oid] || []).find((x) => x.id === a.dataset.id); if (!d) return;
+      const del = await sb.from("order_drawings").delete().eq("id", d.id).select("id");
+      if (del.error || !(del.data || []).length) { toast(del.error ? errMsg(del.error) : "Only admins can remove drawings."); return; }
+      await sb.storage.from(DWG).remove([d.path]); await loadDrawings(oid); render(); toast("Drawing removed"); return;
+    }
+    if (act === "dwgapprove" || act === "dwgchanges") {
+      const o2 = currentCustomerOrder(), did = a.dataset.id, fm = S.dwgForm[did] || {}; if (!o2) return;
+      a.disabled = true;
+      const { error } = await sb.rpc("respond_drawing", { p_drawing: did, p_decision: act === "dwgapprove" ? "approved" : "changes", p_name: String(fm.name || "").trim(), p_comment: String(fm.cmt || "").trim() });
+      if (error) { toast(errMsg(error)); a.disabled = false; return; }
+      delete S.dwgForm[did]; await loadDrawings(o2.id); render();
+      toast(act === "dwgapprove" ? "Drawing approved. Thank you." : "Change request sent to ZPar."); return;
+    }
     const o = S.orders.find((x) => x.id === id);
     if ((act === "adv" || act === "back") && o) {
       const to = stageOf(o) + (act === "adv" ? 1 : -1);
@@ -817,6 +918,8 @@
   function currentCustomerOrder() { const r = route(); return r.page === "order" ? S.orders.find((x) => x.id === r.id) : S.orders.length === 1 ? S.orders[0] : null; }
   document.addEventListener("input", (ev) => {
     if (ev.target.id === "q") { S.q = ev.target.value; render(); return; }
+    const dz = ev.target.dataset || {};
+    if (dz.dwgname || dz.dwgcmt) { const k = dz.dwgname || dz.dwgcmt; S.dwgForm[k] = S.dwgForm[k] || {}; S.dwgForm[k][dz.dwgname ? "name" : "cmt"] = ev.target.value; return; }
     const ds = ev.target.dataset || {};
     if ((ds.cwfld || ds.cwnotes || ds.cwh) && S.staff) {
       const o = S.orders.find((x) => x.id === route().id); if (!o || o.crew_signoff) return;
