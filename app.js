@@ -48,11 +48,14 @@
   window.addEventListener("hashchange", () => render());
 
   // ---------- shared UI ----------
+  const ROLE_LABEL = { manager: "Admin", employee: "Manager", ipm: "Install PM" };
+  const ipmName = (em) => { const t = (S.team || []).find((x) => x.email === em); return t ? (t.name || t.email) : em; };
+  const ipmOptions = (cur) => `<option value="">— None —</option>${(S.team || []).filter((t) => t.role === "ipm").map((t) => `<option value="${e(t.email)}" ${t.email === cur ? "selected" : ""}>${e(t.name || t.email)}</option>`).join("")}`;
   function topbar() {
     const r = route();
-    const tabs = S.staff ? `<nav class="tabs">${S.manager ? `<a href="#/manager" class="${r.page === "manager" || r.page === "new" ? "on" : ""}">Admin</a>` : ""}<a href="#/" class="${r.page === "" || r.page === "order" ? "on" : ""}">Orders</a><a href="#/customers" class="${r.page === "customers" ? "on" : ""}">Customers</a><a href="#/team" class="${r.page === "team" ? "on" : ""}">Team</a></nav>` : "";
+    const tabs = S.staff ? `<nav class="tabs">${S.manager ? `<a href="#/manager" class="${r.page === "manager" || r.page === "new" ? "on" : ""}">Admin</a>` : ""}<a href="#/" class="${r.page === "" || r.page === "order" ? "on" : ""}">Orders</a>${S.ipm ? "" : `<a href="#/customers" class="${r.page === "customers" ? "on" : ""}">Customers</a><a href="#/team" class="${r.page === "team" ? "on" : ""}">Team</a>`}</nav>` : "";
     return `<div class="topbar"><div class="brand">Zpar <span>Connect</span></div>${tabs}<span class="sp"></span>
-      <span class="who">${e(S.session.user.email)}${S.manager ? " · Admin" : S.staff ? " · Manager" : ""}</span><button class="btn" type="button" data-act="signout">Sign out</button></div>`;
+      <span class="who">${e(S.session.user.email)}${S.staff ? " · " + ROLE_LABEL[S.role] : ""}</span><button class="btn" type="button" data-act="signout">Sign out</button></div>`;
   }
 
   const CHECK = `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-6.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
@@ -136,7 +139,7 @@
       <p class="meta" style="margin:8px 0 0">${c ? `${e(c.name)}${c.title ? `, ${e(c.title)}` : ""} completed ${pr.n} of ${pr.total} items · ${fmtDT(c.signed_at)}` : `Customer progress: ${pr.n} of ${pr.total} items. They complete and sign it on their portal page${canFill ? ", or an admin can fill it out for them" : ""}.`}</p>
       <details style="margin-top:10px"><summary class="btn link">Customer answers</summary>${checklistItems(o, false)}</details>`}
       ${photosBlock(o, true)}
-      ${c ? `<div class="row" style="margin-top:12px"><span class="sp"></span><button class="btn" type="button" data-act="reopen">Reopen for customer</button></div>` : ""}</div>
+      ${c && !S.ipm ? `<div class="row" style="margin-top:12px"><span class="sp"></span><button class="btn" type="button" data-act="reopen">Reopen for customer</button></div>` : ""}</div>
       ${crewChecklist(o)}`;
   }
 
@@ -187,7 +190,7 @@
       </div>
       ${ro ? `<details style="margin-top:12px"><summary class="btn link">View crew answers</summary>${items}</details>` : items}
       <label class="f" for="cw_notes" style="margin-top:18px">Notes / discrepancies ${ro ? "" : "(add photos below)"}<textarea id="cw_notes" data-cwnotes="1" ${dis}>${e(d.notes || "")}</textarea></label>
-      ${ro ? `<div class="row" style="margin-top:14px"><span class="sp"></span><button class="btn" type="button" data-act="crewreopen">Reopen crew checklist</button></div>` : `
+      ${ro ? (S.ipm ? "" : `<div class="row" style="margin-top:14px"><span class="sp"></span><button class="btn" type="button" data-act="crewreopen">Reopen crew checklist</button></div>`) : `
       <p class="meta" style="margin:16px 0 0">By signing, the crew lead and customer representative confirm the site conditions above were reviewed together before the start of installation, and any exceptions were noted.</p>
       <div class="grid2" style="margin-top:12px">${hv("rep", "Customer representative on site")}</div>
       <p class="meta" id="cwSaved" style="margin:10px 0 0">Crew answers save automatically.</p>
@@ -356,9 +359,9 @@
     if (q) rows = rows.filter((o) => [o.customers?.name, o.number, o.project, o.pm_name, o.sales_rep, o.products_note, ...(o.lines || []).map((l) => l.item)].join(" ").toLowerCase().includes(q));
     const sync = S.lastSync;
     return `${topbar()}<div class="stack">
-      <header class="row"><div><div class="eyebrow">Orders since Aug 1, 2026 · from QuickBooks + manual entries</div><h1>Orders</h1></div><span class="sp"></span>
-        <div class="status"><span class="dot ${sync ? (sync.ok ? "live" : "off") : ""}"></span>${sync ? (sync.ok ? `Synced ${fmtDT(sync.ran_at)}` : `Last sync failed ${fmtDT(sync.ran_at)}`) : "No QuickBooks sync yet"}</div></header>
-      ${sync && !sync.ok ? `<div class="notice">${e(sync.message)}</div>` : ""}
+      <header class="row"><div><div class="eyebrow">${S.ipm ? "Install projects assigned to you" : "Orders since Aug 1, 2026 · from QuickBooks + manual entries"}</div><h1>${S.ipm ? "Projects" : "Orders"}</h1></div><span class="sp"></span>
+        ${S.ipm ? "" : `<div class="status"><span class="dot ${sync ? (sync.ok ? "live" : "off") : ""}"></span>${sync ? (sync.ok ? `Synced ${fmtDT(sync.ran_at)}` : `Last sync failed ${fmtDT(sync.ran_at)}`) : "No QuickBooks sync yet"}</div>`}</header>
+      ${sync && !sync.ok && !S.ipm ? `<div class="notice">${e(sync.message)}</div>` : ""}
       <section class="kpis" aria-label="Summary" ${S.manager ? "" : 'style="grid-template-columns:repeat(3,minmax(0,1fr))"'}>
         <div class="kpi"><small>Active orders</small><b>${act.length}</b></div>
         ${S.manager ? `<div class="kpi"><small>Active order value</small><b>${money(act.reduce((a, o) => a + (Number(o.amount) || 0), 0))}</b></div>` : ""}
@@ -367,22 +370,22 @@
       </section>
       <div class="row"><input id="q" type="search" placeholder="Search customer, order #, project, product, rep…" value="${e(S.q)}" style="flex:1 1 220px;width:auto" aria-label="Search orders">
         <select id="show" style="width:auto" aria-label="Show">${["Active", "Completed", "All"].map((x) => `<option ${x === S.show ? "selected" : ""}>${x}</option>`).join("")}</select></div>
-      <div class="tablebox"><table><thead><tr><th>Order</th><th>Customer / project</th><th>Products & services</th><th>Sales rep</th><th>Stage</th><th>Site prep / crew</th>${S.manager ? `<th style="text-align:right">Amount</th>` : ""}</tr></thead>
+      <div class="tablebox"><table><thead><tr><th>Order</th><th>Customer / project</th><th>Products & services</th>${S.ipm ? "" : "<th>Sales rep</th>"}<th>Stage</th><th>Site prep / crew</th>${S.manager ? `<th style="text-align:right">Amount</th>` : ""}</tr></thead>
       <tbody>${rows.length ? rows.map((o) => { const st = stageOf(o); return `<tr tabindex="0" data-open="${e(o.id)}">
-        <td class="mono">${e(o.number || "—")}<div class="meta" style="font-family:var(--f-body)">${fmtD(o.order_date) || ""}</div></td><td><b>${e(o.customers?.name || "")}</b><div class="meta">${e(o.project || "")}${o.source === "manual" ? " · <b>Manual entry</b>" : ""}</div></td>
+        <td class="mono">${e(o.number || "—")}<div class="meta" style="font-family:var(--f-body)">${fmtD(o.order_date) || ""}</div></td><td><b>${e(o.customers?.name || "")}</b><div class="meta">${e(o.project || "")}${o.source === "manual" && !S.ipm ? " · <b>Manual entry</b>" : ""}${o.ipm_email && !S.ipm ? ` · Install PM: ${e(ipmName(o.ipm_email))}` : ""}</div></td>
         <td class="ps">${productsSummary(o)}</td>
-        <td>${o.sales_rep ? e(o.sales_rep) : '<span class="meta">—</span>'}</td>
+        ${S.ipm ? "" : `<td>${o.sales_rep ? e(o.sales_rep) : '<span class="meta">—</span>'}</td>`}
         <td><span class="pill ${st === LAST ? "go" : [2, 5].includes(st) ? "warn" : ""}">${st}. ${e(STAGES[st - 1].n)}</span></td>
         <td>${st >= 9 && !o.crew_signoff ? '<span class="meta">—</span>' : `<span class="pill ${o.crew_signoff ? "go" : o.customer_signoff ? "" : "warn"}">${o.crew_signoff ? "Complete" : o.customer_signoff ? `Crew ${crewProg(o).n}/${crewProg(o).total}` : `Customer ${progress(o).n}/${progress(o).total}`}</span>`}</td>
         ${S.manager ? `<td class="num">${money(o.amount)}</td>` : ""}</tr>`; }).join("")
-        : `<tr><td colspan="${S.manager ? 7 : 6}" class="empty">No orders here yet. They appear after the next QuickBooks sync.</td></tr>`}</tbody></table></div></div>`;
+        : `<tr><td colspan="${S.manager ? 7 : S.ipm ? 5 : 6}" class="empty">${S.ipm ? "No projects are assigned to you yet. ZPar will assign them." : "No orders here yet. They appear after the next QuickBooks sync."}</td></tr>`}</tbody></table></div></div>`;
   }
 
   function staffOrder(o) {
     const st = stageOf(o), notes = S.internal?.[o.id] ?? "", ev = S.events?.[o.id] || [];
     const contacts = S.contacts.filter((c) => c.customer_id === o.customer_id);
     return `${topbar()}<div class="stack">
-      <div><a class="btn link" href="#/">← All orders</a></div>
+      <div><a class="btn link" href="#/">← All ${S.ipm ? "projects" : "orders"}</a></div>
       <header><h1>${e(o.customers?.name || "")}</h1><div class="sub">${e([o.number, o.project].filter(Boolean).join(" · "))}</div></header>
       ${stepper(o)}
       <div class="card"><div class="row"><div class="eyebrow">Stage ${st} of ${LAST}</div><span class="sp"></span>
@@ -396,17 +399,18 @@
           ${S.manager ? `<label class="f">Amount <span class="meta" style="font-weight:400">· ${SRC(o)}</span><input value="${e(money(o.amount))}" disabled></label>` : ""}
           ${o.source === "manual" ? `<label class="f">Source<input value="${e("Manual entry" + (o.created_by ? " by " + o.created_by : ""))}" disabled></label><label class="f">Order date<input value="${e(fmtD(o.order_date))}" disabled></label>` : `<label class="f">QuickBooks status<input value="${e(o.qb_status || "")}" disabled></label>
           <label class="f">Accepted date <span class="meta" style="font-weight:400">· QuickBooks</span><input value="${e(o.accepted_date ? fmtD(o.accepted_date) : (o.estimate_date ? "Not recorded · estimate dated " + fmtD(o.estimate_date) : ""))}" disabled></label>`}
-          <label class="f">Sales rep <span class="meta" style="font-weight:400">· ${SRC(o)}</span><input value="${e(o.sales_rep || (o.source === "manual" ? "Not set" : "Not set in QuickBooks"))}" disabled></label>
+          ${S.ipm ? "" : `<label class="f">Sales rep <span class="meta" style="font-weight:400">· ${SRC(o)}</span><input value="${e(o.sales_rep || (o.source === "manual" ? "Not set" : "Not set in QuickBooks"))}" disabled></label>`}
+          ${S.manager && o.source === "manual" ? `<label class="f" for="d_ipm">Install PM (subcontractor)<select id="d_ipm" name="ipm_email">${ipmOptions(o.ipm_email)}</select></label>` : !S.ipm && o.ipm_email ? `<label class="f">Install PM<input value="${e(ipmName(o.ipm_email))}" disabled></label>` : ""}
           <label class="f full">Project / scope <span class="meta" style="font-weight:400">· ${SRC(o)}</span><input value="${e(o.project || "")}" disabled></label>
           <label class="f" for="d_pm_name">ZPar PM (shown to customer)<input id="d_pm_name" name="pm_name" value="${e(o.pm_name || "")}"></label>
           <label class="f" for="d_pm_email">PM email<input id="d_pm_email" name="pm_email" type="email" value="${e(o.pm_email || "")}"></label>
           <label class="f" for="d_site">Job site address<input id="d_site" name="site_address" value="${e(o.site_address || "")}"></label>
           <label class="f" for="d_inst">Scheduled install date (shown to customer)<input id="d_inst" name="install_date" value="${e(o.install_date || "")}" placeholder="e.g. Oct 5–9, 2026"></label>
-          <label class="f full" for="d_notes">Internal notes (staff only)<textarea id="d_notes" name="notes">${e(notes)}</textarea></label>
+          ${S.ipm ? "" : `<label class="f full" for="d_notes">Internal notes (staff only)<textarea id="d_notes" name="notes">${e(notes)}</textarea></label>`}
           <div class="full"><button class="btn go" type="submit">Save</button></div></form></div>
       ${productsCard(o)}
       <div class="card"><div class="eyebrow" style="margin-bottom:8px">Customer logins for ${e(o.customers?.name || "this customer")}</div>
-        ${contacts.length ? contacts.map((c) => `<div class="contact"><span class="mono">${e(c.email)}</span><span class="meta">${e(c.name || "")}</span></div>`).join("") : `<p class="meta">No customer email on file. Add one under Customers, or add an email to this customer in QuickBooks.</p>`}
+        ${contacts.length ? contacts.map((c) => `<div class="contact"><span class="mono">${e(c.email)}</span><span class="meta">${e(c.name || "")}</span></div>`).join("") : `<p class="meta">${S.ipm ? "No customer email on file. Ask ZPar to add one." : "No customer email on file. Add one under Customers, or add an email to this customer in QuickBooks."}</p>`}
         <p class="meta" style="margin:10px 0 0">They sign in at this portal's address with that email and see a read-only status page for this customer's projects.</p></div>
       <div class="card"><div class="eyebrow" style="margin-bottom:8px">Activity</div>
         ${ev.length ? `<ul class="events">${ev.map((x) => `<li><span class="mono">${fmtDT(x.created_at)}</span><span>${x.from_stage ? `${e(STAGES[x.from_stage - 1]?.n)} → ` : ""}<b>${e(STAGES[x.to_stage - 1]?.n)}</b> <span class="meta">${e(x.actor_email || "system")}</span></span></li>`).join("")}</ul>` : `<p class="meta" style="margin:0">No stage changes yet.</p>`}</div></div>`;
@@ -452,6 +456,7 @@
         <label class="f" for="np_pme">PM email<input id="np_pme" name="pm_email" type="email"></label>
         <label class="f" for="np_site">Job site address<input id="np_site" name="site_address"></label>
         <label class="f" for="np_inst">Scheduled install date<input id="np_inst" name="install_date" placeholder="e.g. Nov 3–7, 2026"></label>
+        <label class="f" for="np_ipm">Install PM (subcontractor)<select id="np_ipm" name="ipm_email">${ipmOptions("")}</select></label>
         <div class="full row"><button class="btn go" type="submit">Add project</button><span class="err" id="npErr"></span></div>
       </form></div>
       <p class="meta" style="margin:0">Installation (stage 9) still requires both checklist sign-offs, so manual projects can start at stage 8 at the latest.</p></div>`;
@@ -533,15 +538,15 @@
     const me = S.session.user.email.toLowerCase();
     return `${topbar()}<div class="stack">
       <header><div class="eyebrow">ZPar staff</div><h1>Team</h1></header>
-      <p class="meta" style="margin:0"><b>Managers</b> update order stages, checklists and photos. <b>Admins</b> also see the Admin overview and can add or remove team members. Everyone signs in at this portal with their work email.</p>
+      <p class="meta" style="margin:0"><b>Admins</b> see everything, including amounts, and manage the team. <b>Managers</b> update order stages, checklists and photos on all orders. <b>Install PMs</b> (subcontractors) see only the manually added projects an Admin assigns to them — no customer list, QuickBooks orders, amounts or internal notes. Everyone signs in at this portal with their email.</p>
       <div class="card">${(S.team || []).map((t) => `<div class="contact"><span style="min-width:200px"><b>${e(t.name || t.email)}</b><div class="meta mono">${e(t.email)}</div></span>
-          ${S.manager && t.email !== me ? `<select data-role="${e(t.email)}" aria-label="Role for ${e(t.email)}" style="width:auto"><option value="employee" ${t.role === "employee" ? "selected" : ""}>Manager</option><option value="manager" ${t.role === "manager" ? "selected" : ""}>Admin</option></select>
+          ${S.manager && t.email !== me ? `<select data-role="${e(t.email)}" aria-label="Role for ${e(t.email)}" style="width:auto"><option value="ipm" ${t.role === "ipm" ? "selected" : ""}>Install PM</option><option value="employee" ${t.role === "employee" ? "selected" : ""}>Manager</option><option value="manager" ${t.role === "manager" ? "selected" : ""}>Admin</option></select>
             <span class="sp"></span><button class="btn" type="button" data-act="rmstaff" data-email="${e(t.email)}">Remove</button>`
-          : `<span class="pill ${t.role === "manager" ? "go" : ""}">${t.role === "manager" ? "Admin" : "Manager"}</span>${t.email === me ? `<span class="meta">you</span>` : ""}`}</div>`).join("")}
+          : `<span class="pill ${t.role === "manager" ? "go" : ""}">${ROLE_LABEL[t.role] || t.role}</span>${t.email === me ? `<span class="meta">you</span>` : ""}`}</div>`).join("")}
         ${S.manager ? `<form id="addStaff" class="row" style="margin-top:14px">
-          <input name="email" type="email" required placeholder="name@zparint.com" style="flex:2 1 200px;width:auto" aria-label="Email">
+          <input name="email" type="email" required placeholder="name@company.com" style="flex:2 1 200px;width:auto" aria-label="Email">
           <input name="name" placeholder="Name" style="flex:1 1 140px;width:auto" aria-label="Name">
-          <select name="role" style="width:auto" aria-label="Role"><option value="employee">Manager</option><option value="manager">Admin</option></select>
+          <select name="role" style="width:auto" aria-label="Role"><option value="employee">Manager</option><option value="ipm">Install PM</option><option value="manager">Admin</option></select>
           <button class="btn go" type="submit">Add to team</button></form>` : ""}</div></div>`;
   }
 
@@ -557,7 +562,7 @@
       const [c, k, l] = await Promise.all([
         sb.from("customers").select("*").order("name"),
         sb.from("customer_contacts").select("*").order("email"),
-        sb.from("qb_sync_log").select("*").order("ran_at", { ascending: false }).limit(1),
+        S.ipm ? Promise.resolve({ data: [] }) : sb.from("qb_sync_log").select("*").order("ran_at", { ascending: false }).limit(1),
       ]);
       S.customers = c.data || []; S.contacts = k.data || []; S.lastSync = (l.data || [])[0] || null;
       const [t, rc] = await Promise.all([
@@ -607,8 +612,8 @@
     const po = S.staff ? (r.page === "order" ? S.orders.find((x) => x.id === r.id) : null) : currentCustomerOrder();
     if (po && S.photos[po.id] === undefined && loadingPhotos !== po.id) { loadingPhotos = po.id; loadPhotos(po.id).then(() => { loadingPhotos = null; render(); }); }
     if (!S.staff) app.innerHTML = customerHome();
-    else if (r.page === "customers") app.innerHTML = staffCustomers();
-    else if (r.page === "team") app.innerHTML = teamView();
+    else if (r.page === "customers" && !S.ipm) app.innerHTML = staffCustomers();
+    else if (r.page === "team" && !S.ipm) app.innerHTML = teamView();
     else if (r.page === "new" && S.manager) app.innerHTML = newProjectView();
     else if (r.page === "manager" && S.manager) app.innerHTML = managerView();
     else if (r.page === "order") {
@@ -647,9 +652,10 @@
       ev.preventDefault();
       const id = route().id, fd = new FormData(f);
       const upd = { pm_name: fd.get("pm_name").trim() || null, pm_email: fd.get("pm_email").trim() || null, site_address: fd.get("site_address").trim() || null, install_date: fd.get("install_date").trim() || null };
+      if (fd.has("ipm_email")) upd.ipm_email = fd.get("ipm_email") || null;
       const [a, b] = await Promise.all([
         sb.from("orders").update(upd).eq("id", id),
-        sb.from("order_internal").upsert({ order_id: id, notes: fd.get("notes"), updated_at: new Date().toISOString() }),
+        fd.has("notes") ? sb.from("order_internal").upsert({ order_id: id, notes: fd.get("notes"), updated_at: new Date().toISOString() }) : Promise.resolve({}),
       ]);
       if (a.error || b.error) toast(errMsg(a.error || b.error)); else { toast("Saved"); refreshOrder(id); }
       return;
@@ -669,7 +675,7 @@
       const amt = v("amount");
       const row = { customer_id: cust.id, number: v("number"), project: v("project"), order_date: v("order_date"), stage: Number(v("stage")) || 1,
         amount: amt === "" ? null : Number(amt), pm_name: v("pm_name") || null, pm_email: v("pm_email") || null, site_address: v("site_address") || null,
-        install_date: v("install_date") || null, sales_rep: v("sales_rep") || null, products_note: v("products_note") || null, source: "manual", created_by: S.session.user.email };
+        install_date: v("install_date") || null, sales_rep: v("sales_rep") || null, products_note: v("products_note") || null, ipm_email: v("ipm_email") || null, source: "manual", created_by: S.session.user.email };
       const o = await sb.from("orders").insert(row).select("*");
       if (o.error) { err.textContent = errMsg(o.error); btn.disabled = false; return; }
       const em = v("email").toLowerCase();
@@ -832,12 +838,15 @@
   // ---------- boot ----------
   async function boot(session) {
     S.session = session;
-    if (!session) { S.orders = []; S.staff = false; render(); return; }
+    if (!session) { S.orders = []; S.staff = false; S.manager = false; S.ipm = false; S.role = null; render(); return; }
     app.innerHTML = `<div class="card empty">Loading your projects…</div>`;
     try {
-      const { data } = await sb.rpc("is_staff");
-      S.staff = data === true; S.manager = false;
-      if (S.staff) { const m = await sb.rpc("is_manager"); S.manager = m.data === true; }
+      const rr = await sb.rpc("my_role");
+      if (rr.error) { // older database without my_role(): fall back to the original checks
+        const { data } = await sb.rpc("is_staff"); S.role = data === true ? "employee" : null;
+        if (S.role) { const m = await sb.rpc("is_manager"); if (m.data === true) S.role = "manager"; }
+      } else S.role = rr.data || null;
+      S.staff = !!S.role; S.manager = S.role === "manager"; S.ipm = S.role === "ipm";
       if (S.manager && !location.hash) history.replaceState(null, "", "#/manager");
       await loadAll();
     } catch (err) { app.innerHTML = `<div class="card login"><p class="err">${e(errMsg(err))}</p><button class="btn" data-act="signout" type="button">Sign out</button></div>`; return; }
