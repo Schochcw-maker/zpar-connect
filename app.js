@@ -101,16 +101,21 @@
       <div class="signed ${k ? "" : "pending"}"><div class="eyebrow">ZPar crew lead</div>${k ? `<b>${e(k.crew_lead)}</b><div class="meta">${fmtDT(k.signed_at)}${k.install_dates ? ` · Install ${e(k.install_dates)}` : ""}</div>${k.crew_present ? `<div class="meta">Crew: ${e(k.crew_present)}</div>` : ""}` : `<span class="meta">Countersigns on arrival</span>`}</div></div>`;
   }
 
+  // Expand / collapse for the Job Site Preparation sheet (signed sheets start collapsed).
+  const clCol = (o) => !adminFilling(o) && ((S.clCollapsed || {})[o.id] ?? !!o.customer_signoff);
+  const clToggle = (o) => adminFilling(o) ? "" : `<button class="btn" type="button" data-act="cltoggle" aria-expanded="${!clCol(o)}" aria-controls="clBody">${clCol(o) ? "Expand ▾" : "Collapse ▴"}</button>`;
   function customerChecklist(o) {
     const st = stageOf(o), pr = progress(o);
     if (o.customer_signoff) {
-      return `<div class="card"><div class="row"><div class="eyebrow">Job Site Install Preparation & Expectations</div><span class="sp"></span><span class="pill go">Signed</span></div>
+      return `<div class="card" id="checklist"><div class="row"><div class="eyebrow">Job Site Install Preparation & Expectations</div><span class="sp"></span><span class="pill go">Signed</span>${clToggle(o)}</div>
+        ${clCol(o) ? `<p class="meta" style="margin:8px 0 0">Signed by <b>${e(o.customer_signoff.name)}</b> · ${fmtDT(o.customer_signoff.signed_at)}. Expand to view your answers and photos.</p></div>` : `<div id="clBody">
         <p class="lead" style="margin:8px 0 0">${o.crew_signoff ? "Our crew lead completed the site verification walk-through on arrival." : "Thank you. Our crew will perform a site verification walk-through on arrival, before installation begins."}</p>
-        ${signoffSummary(o)}<details style="margin-top:14px"><summary class="btn link">View your answers and photos</summary>${checklistItems(o, false)}${photosBlock(o, false)}</details></div>`;
+        ${signoffSummary(o)}${checklistItems(o, false)}${photosBlock(o, false)}</div></div>`}`;
     }
     if (st >= 9) return "";
     return `<div class="card action" id="checklist"><div class="row"><div class="eyebrow warn-ink">Action required · Job Site Install Preparation & Expectations</div><span class="sp"></span>
-        <span class="pill ${pr.all ? "go" : "warn"}" id="clCount">${pr.n} of ${pr.total} complete</span></div>
+        <span class="pill ${pr.all ? "go" : "warn"}" id="clCount">${pr.n} of ${pr.total} complete</span>${clToggle(o)}</div>
+      ${clCol(o) ? `<p class="meta" style="margin:8px 0 0">${pr.n} of ${pr.total} items complete. Expand to continue and sign.</p></div>` : `<div id="clBody">
       <p class="meta" style="margin:6px 0 0">Please review and confirm the items below before our crew's scheduled arrival.</p>
       <div class="cw-head" style="margin-top:12px">
         <div><div class="eyebrow">Job / PO #</div><div class="ro mono">${e(o.number || "—")}</div></div>
@@ -125,7 +130,7 @@
       <div class="sign"><label class="f" for="sg_name">Printed name<input id="sg_name" autocomplete="name"></label>
         <label class="f" for="sg_title">Title<input id="sg_title" autocomplete="organization-title"></label></div>
       <div class="row" style="margin-top:14px"><button class="btn go" type="button" data-act="sign" id="signBtn" ${pr.all ? "" : "disabled"}>Sign</button>
-        <span class="meta" id="signHint">${pr.all ? "All items complete." : "Complete every item to sign."}</span></div></div>`;
+        <span class="meta" id="signHint">${pr.all ? "All items complete." : "Complete every item to sign."}</span></div></div></div>`}`;
   }
 
   const adminFilling = (o) => !!(o && S.manager && !o.customer_signoff && stageOf(o) < 9 && S.fillFor && S.fillFor[o.id]);
@@ -133,13 +138,14 @@
     const pr = progress(o), c = o.customer_signoff, canFill = S.manager && !c && stageOf(o) < 9, filling = adminFilling(o);
     return `<div class="card ${filling ? "action" : ""}"><div class="row"><div class="eyebrow ${filling ? "warn-ink" : ""}">Customer Job Site Preparation sheet${filling ? " · admin entry" : ""}</div><span class="sp"></span>
         <span class="pill ${c || pr.all ? "go" : "warn"}" ${filling ? 'id="clCount"' : ""}>${c ? "Signed by customer" : filling ? `${pr.n} of ${pr.total} complete` : "Waiting on customer"}</span>
-        ${canFill ? `<button class="btn ${filling ? "go" : ""}" type="button" data-act="fillfor">${filling ? "Done" : "Fill out for customer"}</button>` : ""}</div>
+        ${canFill ? `<button class="btn ${filling ? "go" : ""}" type="button" data-act="fillfor">${filling ? "Done" : "Fill out for customer"}</button>` : ""}${clToggle(o)}</div>
+      ${clCol(o) ? `<p class="meta" style="margin:8px 0 0">${c ? `Signed by <b>${e(c.name)}</b> · ${fmtDT(c.signed_at)}` : `Customer progress: ${pr.n} of ${pr.total} items`}. Expand to view answers and photos.</p>` : `<div id="clBody">
       ${filling ? `<p class="meta" style="margin:8px 0 0" id="clSaved">You're filling this out on the customer's behalf. Answers save automatically and appear on the customer's portal. The customer still signs it themselves.</p>${checklistItems(o, true)}
       <div class="row" style="margin-top:14px"><span class="sp"></span><button class="btn go" type="button" data-act="fillfor">Done</button></div>` : `
       <p class="meta" style="margin:8px 0 0">${c ? `${e(c.name)}${c.title ? `, ${e(c.title)}` : ""} completed ${pr.n} of ${pr.total} items · ${fmtDT(c.signed_at)}` : `Customer progress: ${pr.n} of ${pr.total} items. They complete and sign it on their portal page${canFill ? ", or an admin can fill it out for them" : ""}.`}</p>
       <details style="margin-top:10px"><summary class="btn link">Customer answers</summary>${checklistItems(o, false)}</details>`}
       ${photosBlock(o, true)}
-      ${c && !S.ipm ? `<div class="row" style="margin-top:12px"><span class="sp"></span><button class="btn" type="button" data-act="reopen">Reopen for customer</button></div>` : ""}</div>
+      ${c && !S.ipm ? `<div class="row" style="margin-top:12px"><span class="sp"></span><button class="btn" type="button" data-act="reopen">Reopen for customer</button></div>` : ""}</div>`}</div>
       ${crewChecklist(o)}`;
   }
 
@@ -849,6 +855,12 @@ a.btn{text-decoration:none;display:inline-block}
       S.fillFor = S.fillFor || {}; S.fillFor[o.id] = !S.fillFor[o.id];
       if (!S.fillFor[o.id]) toast("Saved. The customer can review and sign on their portal.");
       render(); return;
+    }
+    if (act === "cltoggle" && o) {
+      S.clCollapsed = S.clCollapsed || {};
+      const was = clCol(o); S.clCollapsed[o.id] = !was; render();
+      if (was) { const c = document.getElementById("checklist") || document.getElementById("clBody"); if (c) c.scrollIntoView({ block: "nearest" }); }
+      return;
     }
     if (act === "crewtoggle" && o) {
       S.crewCollapsed = S.crewCollapsed || {};
