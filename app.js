@@ -113,7 +113,7 @@
         ${signoffSummary(o)}${checklistItems(o, false)}${photosBlock(o, false)}</div></div>`}`;
     }
     if (st >= 9) return "";
-    return `<div class="card action" id="checklist"><div class="row"><div class="eyebrow warn-ink">Action required · Job Site Install Preparation & Expectations</div><span class="sp"></span>
+    return `<div class="card action" id="checklist"><div class="row"><div><div class="act-h">${WARN_ICON}Action required</div><div class="eyebrow">Job Site Install Preparation & Expectations · please complete and sign</div></div><span class="sp"></span>
         <span class="pill ${pr.all ? "go" : "warn"}" id="clCount">${pr.n} of ${pr.total} complete</span>${clToggle(o)}</div>
       ${clCol(o) ? `<p class="meta" style="margin:8px 0 0">${pr.n} of ${pr.total} items complete. Expand to continue and sign.</p></div>` : `<div id="clBody">
       <p class="meta" style="margin:6px 0 0">Please review and confirm the items below before our crew's scheduled arrival.</p>
@@ -235,7 +235,15 @@ a.btn{text-decoration:none;display:inline-block}
 .dwg-resp .row{grid-column:1/-1}
 .dwg-up{display:grid;grid-template-columns:2fr 1fr;gap:10px;margin:12px 0 6px;padding:14px;border:1px dashed var(--line);border-radius:10px}
 .dwg-up .full{grid-column:1/-1}
-@media (max-width:560px){.dwg-resp,.dwg-up{grid-template-columns:1fr}}`; document.head.appendChild(st); })();
+@media (max-width:560px){.dwg-resp,.dwg-up{grid-template-columns:1fr}}
+.act-h{display:flex;align-items:center;gap:10px;font-size:22px;font-weight:700;color:var(--warn);margin:0 0 4px;line-height:1.2}
+.act-h svg,.act-banner svg{width:24px;height:24px;flex:none}
+.act-banner{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;padding:14px 18px;border:2px solid var(--warn);background:var(--warn-soft);border-radius:12px;font-size:15px}
+.act-banner b{display:flex;align-items:center;gap:8px;font-size:20px;color:var(--warn)}
+.keydates{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:18px;padding-top:16px;border-top:1px solid var(--line-2)}
+.keydates .v{font-size:18px;font-weight:600;margin-top:2px}
+@media (max-width:480px){.keydates{grid-template-columns:1fr}}`; document.head.appendChild(st); })();
+  const WARN_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 2 21h20L12 3z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M12 10v5M12 18h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
   const fmtSize = (n) => (n == null ? "" : n >= 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB");
   async function loadDrawings(orderId) {
     const { data, error } = await sb.from("order_drawings").select("*").eq("order_id", orderId).order("created_at", { ascending: false });
@@ -284,7 +292,7 @@ a.btn{text-decoration:none;display:inline-block}
         <div class="full row"><button class="btn go" type="submit">Upload drawing</button><span class="meta" id="dw_status">Reusing an existing title uploads a new revision and marks the old one superseded.</span></div></form>` : "";
     const body = list === undefined ? `<p class="meta">Loading drawings…</p>` : cur.length ? cur.map((d) => dwgRow(d, customer)).join("") : `<p class="meta" style="margin:8px 0 0">No drawings uploaded yet.</p>`;
     const older = old.length ? `<details style="margin-top:10px"><summary class="btn link">Older revisions (${old.length})</summary>${old.map((d) => dwgRow(d, customer)).join("")}</details>` : "";
-    return `<div class="card ${action ? "action" : ""}" id="drawings"><div class="row"><div class="eyebrow ${action ? "warn-ink" : ""}">${action ? "Action required · " : ""}Drawings</div><span class="sp"></span>${pending ? `<span class="pill warn">${pending} awaiting ${customer ? "your " : "customer "}approval</span>` : ""}</div>
+    return `<div class="card ${action ? "action" : ""}" id="drawings"><div class="row">${action ? `<div><div class="act-h">${WARN_ICON}Action required</div><div class="eyebrow">Drawings · your approval is needed</div></div>` : `<div class="eyebrow">Drawings</div>`}<span class="sp"></span>${pending ? `<span class="pill warn">${pending} awaiting ${customer ? "your " : "customer "}approval</span>` : ""}</div>
       ${action ? `<p class="meta" style="margin:6px 0 0">Open each drawing, then approve it or request changes. Your response goes straight to your ZPar project team.</p>` : ""}
       ${up}${body}${older}</div>`;
   }
@@ -405,6 +413,12 @@ a.btn{text-decoration:none;display:inline-block}
     return `${topbar()}<div class="stack">
       ${S.orders.length > 1 ? `<div><a class="btn link" href="#/">← All projects</a></div>` : ""}
       <header><div class="eyebrow">Welcome</div><h1>${e(o.customers?.name || "Your project")}</h1><div class="sub">${e([o.number, o.project].filter(Boolean).join(" · "))}</div></header>
+      ${(() => { const acts = [];
+        if (!o.customer_signoff && st < 9) acts.push(["cl", "Complete and sign your Job Site Preparation sheet"]);
+        const pd = (S.drawings[o.id] || []).filter((d) => !d.superseded && d.status === "pending").length;
+        if (pd) acts.push(["dw", `Review and approve ${pd} drawing${pd === 1 ? "" : "s"}`]);
+        return acts.length ? `<div class="act-banner"><b>${WARN_ICON}Action required</b><span>${acts.map((x) => e(x[1])).join(" · ")}</span><span class="sp"></span>
+          <button class="btn go" type="button" data-act="gotoact" data-to="${acts[0][0]}">${acts[0][0] === "cl" ? "Go to the form" : "Go to drawings"}</button></div>` : ""; })()}
       ${stepper(o)}
       <section class="card hero">
         <div class="eyebrow">Current status · Stage ${st} of ${LAST}</div>
@@ -412,6 +426,8 @@ a.btn{text-decoration:none;display:inline-block}
         <p class="lead" style="margin:6px 0 0">${e(STAGE_TEXT[st - 1])}</p>
         <div class="bar" style="margin-top:18px" role="progressbar" aria-valuemin="0" aria-valuemax="${LAST}" aria-valuenow="${st}"><i style="width:${(st / LAST) * 100}%"></i></div>
         <div class="row meta" style="margin-top:8px"><span>${dates[st] ? `Since ${fmtD(dates[st])}` : ""}</span><span class="sp"></span><span>${next ? `Next: ${e(next)}` : "Complete"}</span></div>
+        <div class="keydates"><div><div class="eyebrow">Estimated ship date</div><div class="v">${e(o.ship_date || "To be confirmed")}</div></div>
+          <div><div class="eyebrow">Scheduled install date</div><div class="v">${e(o.install_date || "To be scheduled")}</div></div></div>
       </section>
       ${drawingsBlock(o, true)}
       ${o.customer_signoff ? "" : customerChecklist(o)}
@@ -480,6 +496,7 @@ a.btn{text-decoration:none;display:inline-block}
           <label class="f" for="d_pm_email">PM email<input id="d_pm_email" name="pm_email" type="email" value="${e(o.pm_email || "")}"></label>
           <label class="f" for="d_site">Job site address<input id="d_site" name="site_address" value="${e(o.site_address || "")}"></label>
           <label class="f" for="d_inst">Scheduled install date (shown to customer)<input id="d_inst" name="install_date" value="${e(o.install_date || "")}" placeholder="e.g. Oct 5–9, 2026"></label>
+          ${S.manager ? `<label class="f" for="d_ship">Estimated ship date (shown to customer)<input id="d_ship" name="ship_date" value="${e(o.ship_date || "")}" placeholder="e.g. Week of Nov 3, 2026" maxlength="60"></label>` : `<label class="f">Estimated ship date (shown to customer)<input value="${e(o.ship_date || "Not set")}" disabled></label>`}
           ${S.ipm ? "" : `<label class="f full" for="d_notes">Internal notes (staff only)<textarea id="d_notes" name="notes">${e(notes)}</textarea></label>`}
           <div class="full"><button class="btn go" type="submit">Save</button></div></form></div>
       ${productsCard(o)}
@@ -530,6 +547,7 @@ a.btn{text-decoration:none;display:inline-block}
         <label class="f" for="np_pme">PM email<input id="np_pme" name="pm_email" type="email"></label>
         <label class="f" for="np_site">Job site address<input id="np_site" name="site_address"></label>
         <label class="f" for="np_inst">Scheduled install date<input id="np_inst" name="install_date" placeholder="e.g. Nov 3–7, 2026"></label>
+        <label class="f" for="np_ship">Estimated ship date<input id="np_ship" name="ship_date" maxlength="60" placeholder="e.g. Week of Oct 27, 2026"></label>
         <label class="f" for="np_ipm">Install PM (subcontractor)<select id="np_ipm" name="ipm_email">${ipmOptions("")}</select></label>
         <div class="full row"><button class="btn go" type="submit">Add project</button><span class="err" id="npErr"></span></div>
       </form></div>
@@ -745,6 +763,7 @@ a.btn{text-decoration:none;display:inline-block}
       const id = route().id, fd = new FormData(f);
       const upd = { pm_name: fd.get("pm_name").trim() || null, pm_email: fd.get("pm_email").trim() || null, site_address: fd.get("site_address").trim() || null, install_date: fd.get("install_date").trim() || null };
       if (fd.has("ipm_email")) upd.ipm_email = fd.get("ipm_email") || null;
+      if (fd.has("ship_date")) upd.ship_date = String(fd.get("ship_date")).trim() || null;
       const [a, b] = await Promise.all([
         sb.from("orders").update(upd).eq("id", id),
         fd.has("notes") ? sb.from("order_internal").upsert({ order_id: id, notes: fd.get("notes"), updated_at: new Date().toISOString() }) : Promise.resolve({}),
@@ -767,7 +786,7 @@ a.btn{text-decoration:none;display:inline-block}
       const amt = v("amount");
       const row = { customer_id: cust.id, number: v("number"), project: v("project"), order_date: v("order_date"), stage: Number(v("stage")) || 1,
         amount: amt === "" ? null : Number(amt), pm_name: v("pm_name") || null, pm_email: v("pm_email") || null, site_address: v("site_address") || null,
-        install_date: v("install_date") || null, sales_rep: v("sales_rep") || null, products_note: v("products_note") || null, ipm_email: v("ipm_email") || null, source: "manual", created_by: S.session.user.email };
+        install_date: v("install_date") || null, sales_rep: v("sales_rep") || null, products_note: v("products_note") || null, ipm_email: v("ipm_email") || null, ship_date: v("ship_date") || null, source: "manual", created_by: S.session.user.email };
       const o = await sb.from("orders").insert(row).select("*");
       if (o.error) { err.textContent = errMsg(o.error); btn.disabled = false; return; }
       const em = v("email").toLowerCase();
@@ -855,6 +874,12 @@ a.btn{text-decoration:none;display:inline-block}
       S.fillFor = S.fillFor || {}; S.fillFor[o.id] = !S.fillFor[o.id];
       if (!S.fillFor[o.id]) toast("Saved. The customer can review and sign on their portal.");
       render(); return;
+    }
+    if (act === "gotoact") {
+      const o3 = currentCustomerOrder();
+      if (a.dataset.to === "cl" && o3) { S.clCollapsed = S.clCollapsed || {}; S.clCollapsed[o3.id] = false; render(); }
+      const t = document.getElementById(a.dataset.to === "cl" ? "checklist" : "drawings"); if (t) t.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
     }
     if (act === "cltoggle" && o) {
       S.clCollapsed = S.clCollapsed || {};
