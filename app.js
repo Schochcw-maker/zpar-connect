@@ -444,7 +444,7 @@ a.btn{text-decoration:none;display:inline-block}
   // ---------- staff ----------
   function staffOrders() {
     const act = S.orders.filter((o) => stageOf(o) < LAST), q = S.q.toLowerCase();
-    let rows = S.orders.filter((o) => S.show === "All" || (S.show === "Active" ? stageOf(o) < LAST : stageOf(o) === LAST));
+    let rows = S.show === "Removed" ? (S.removed || []) : S.orders.filter((o) => S.show === "All" || (S.show === "Active" ? stageOf(o) < LAST : stageOf(o) === LAST));
     if (q) rows = rows.filter((o) => [o.customers?.name, o.number, o.project, o.pm_name, o.sales_rep, o.products_note, ...(o.lines || []).map((l) => l.item)].join(" ").toLowerCase().includes(q));
     const sync = S.lastSync;
     return `${topbar()}<div class="stack">
@@ -458,16 +458,16 @@ a.btn{text-decoration:none;display:inline-block}
         <div class="kpi"><small>Site prep sheet not signed</small><b>${act.filter((o) => stageOf(o) < 9 && !o.customer_signoff).length}</b><small>required before Installation</small></div>
       </section>
       <div class="row"><input id="q" type="search" placeholder="Search customer, order #, project, product, rep…" value="${e(S.q)}" style="flex:1 1 220px;width:auto" aria-label="Search orders">
-        <select id="show" style="width:auto" aria-label="Show">${["Active", "Completed", "All"].map((x) => `<option ${x === S.show ? "selected" : ""}>${x}</option>`).join("")}</select></div>
+        <select id="show" style="width:auto" aria-label="Show">${["Active", "Completed", "All", ...(S.manager ? ["Removed"] : [])].map((x) => `<option ${x === S.show ? "selected" : ""}>${x}</option>`).join("")}</select></div>
       <div class="tablebox"><table><thead><tr><th>Order</th><th>Customer / project</th><th>Products & services</th>${S.ipm ? "" : "<th>Sales rep</th>"}<th>Stage</th><th>Site prep / crew</th>${S.manager ? `<th style="text-align:right">Amount</th>` : ""}</tr></thead>
-      <tbody>${rows.length ? rows.map((o) => { const st = stageOf(o); return `<tr tabindex="0" data-open="${e(o.id)}">
+      <tbody>${rows.length ? rows.map((o) => { const st = stageOf(o); return `<tr ${o.removed_at ? 'class="static"' : `tabindex="0" data-open="${e(o.id)}"`}>
         <td class="mono">${e(o.number || "—")}<div class="meta" style="font-family:var(--f-body)">${fmtD(o.order_date) || ""}</div></td><td><b>${e(o.customers?.name || "")}</b><div class="meta">${e(o.project || "")}${o.source === "manual" && !S.ipm ? " · <b>Manual entry</b>" : ""}${o.ipm_email && !S.ipm ? ` · Install PM: ${e(ipmName(o.ipm_email))}` : ""}</div></td>
         <td class="ps">${productsSummary(o)}</td>
         ${S.ipm ? "" : `<td>${o.sales_rep ? e(o.sales_rep) : '<span class="meta">—</span>'}</td>`}
         <td><span class="pill ${st === LAST ? "go" : [2, 5].includes(st) ? "warn" : ""}">${st}. ${e(STAGES[st - 1].n)}</span></td>
-        <td>${st >= 9 && !o.crew_signoff ? '<span class="meta">—</span>' : `<span class="pill ${o.crew_signoff ? "go" : o.customer_signoff ? "" : "warn"}">${o.crew_signoff ? "Complete" : o.customer_signoff ? `Crew ${crewProg(o).n}/${crewProg(o).total}` : `Customer ${progress(o).n}/${progress(o).total}`}</span>`}</td>
+        <td>${o.removed_at ? `<div class="meta">Removed ${fmtD(o.removed_at)}${o.removed_by ? " by " + e(o.removed_by) : ""}</div><button class="btn" type="button" data-act="restoreorder" data-id="${e(o.id)}" style="margin-top:4px">Restore</button>` : st >= 9 && !o.crew_signoff ? '<span class="meta">—</span>' : `<span class="pill ${o.crew_signoff ? "go" : o.customer_signoff ? "" : "warn"}">${o.crew_signoff ? "Complete" : o.customer_signoff ? `Crew ${crewProg(o).n}/${crewProg(o).total}` : `Customer ${progress(o).n}/${progress(o).total}`}</span>`}</td>
         ${S.manager ? `<td class="num">${money(o.amount)}</td>` : ""}</tr>`; }).join("")
-        : `<tr><td colspan="${S.manager ? 7 : S.ipm ? 5 : 6}" class="empty">${S.ipm ? "No projects are assigned to you yet. ZPar will assign them." : "No orders here yet. They appear after the next QuickBooks sync."}</td></tr>`}</tbody></table></div></div>`;
+        : `<tr><td colspan="${S.manager ? 7 : S.ipm ? 5 : 6}" class="empty">${S.show === "Removed" ? "No removed orders." : S.ipm ? "No projects are assigned to you yet. ZPar will assign them." : "No orders here yet. They appear after the next QuickBooks sync."}</td></tr>`}</tbody></table></div></div>`;
   }
 
   function staffOrder(o) {
@@ -504,7 +504,10 @@ a.btn{text-decoration:none;display:inline-block}
         ${contacts.length ? contacts.map((c) => `<div class="contact"><span class="mono">${e(c.email)}</span><span class="meta">${e(c.name || "")}</span></div>`).join("") : `<p class="meta">${S.ipm ? "No customer email on file. Ask ZPar to add one." : "No customer email on file. Add one under Customers, or add an email to this customer in QuickBooks."}</p>`}
         <p class="meta" style="margin:10px 0 0">They sign in at this portal's address with that email and see a read-only status page for this customer's projects.</p></div>
       <div class="card"><div class="eyebrow" style="margin-bottom:8px">Activity</div>
-        ${ev.length ? `<ul class="events">${ev.map((x) => `<li><span class="mono">${fmtDT(x.created_at)}</span><span>${x.from_stage ? `${e(STAGES[x.from_stage - 1]?.n)} → ` : ""}<b>${e(STAGES[x.to_stage - 1]?.n)}</b> <span class="meta">${e(x.actor_email || "system")}</span></span></li>`).join("")}</ul>` : `<p class="meta" style="margin:0">No stage changes yet.</p>`}</div></div>`;
+        ${ev.length ? `<ul class="events">${ev.map((x) => `<li><span class="mono">${fmtDT(x.created_at)}</span><span>${x.from_stage ? `${e(STAGES[x.from_stage - 1]?.n)} → ` : ""}<b>${e(STAGES[x.to_stage - 1]?.n)}</b> <span class="meta">${e(x.actor_email || "system")}</span></span></li>`).join("")}</ul>` : `<p class="meta" style="margin:0">No stage changes yet.</p>`}</div>
+      ${S.manager ? `<div class="card"><div class="row"><div style="flex:1 1 320px"><div class="eyebrow">Remove order</div>
+        <p class="meta" style="margin:6px 0 0">Hides this order from Managers, Install PMs and the customer. The nightly QuickBooks sync won't re-add it. You can restore it anytime from Orders → Show: Removed.</p></div>
+        <button class="btn" type="button" data-act="rmorder" style="color:var(--bad);border-color:var(--bad)">Remove order</button></div></div>` : ""}</div>`;
   }
 
   const SRC = (o) => (o.source === "manual" ? "Manual entry" : "QuickBooks");
@@ -646,7 +649,8 @@ a.btn{text-decoration:none;display:inline-block}
   async function loadAll() {
     const o = await sb.from("orders").select("*, customers(name)").order("order_date", { ascending: false });
     if (o.error) throw o.error;
-    S.orders = o.data || [];
+    S.removed = (o.data || []).filter((x) => x.removed_at); // only Admins can read removed orders
+    S.orders = (o.data || []).filter((x) => !x.removed_at);
     if (S.manager) await loadFinancials();
     const it = await sb.from("checklist_items").select("*").eq("active", true).order("sec_order").order("sort");
     S.items = it.data || [];
@@ -680,7 +684,7 @@ a.btn{text-decoration:none;display:inline-block}
     const f = await sb.from("order_financials").select("order_id, amount, line_amounts");
     S.fin = new Map((f.data || []).map((x) => [x.order_id, x.amount]));
     S.lineAmts = new Map((f.data || []).map((x) => [x.order_id, x.line_amounts || []]));
-    S.orders.forEach(mergeFin);
+    S.orders.forEach(mergeFin); (S.removed || []).forEach(mergeFin);
   }
   // Line-item dollar amounts are also kept in order_financials (Admins only); merge them back for display.
   function mergeFin(o) {
@@ -874,6 +878,20 @@ a.btn{text-decoration:none;display:inline-block}
       S.fillFor = S.fillFor || {}; S.fillFor[o.id] = !S.fillFor[o.id];
       if (!S.fillFor[o.id]) toast("Saved. The customer can review and sign on their portal.");
       render(); return;
+    }
+    if (act === "rmorder" && o) {
+      if (!a.dataset.armed) { a.dataset.armed = "1"; a.textContent = `Confirm: remove ${o.number || "this order"}`; return; }
+      a.disabled = true;
+      const { data, error } = await sb.from("orders").update({ removed_at: new Date().toISOString() }).eq("id", o.id).select("id");
+      if (error || !(data || []).length) { toast(error ? errMsg(error) : "Only admins can remove orders."); a.disabled = false; return; }
+      await loadAll(); location.hash = "#/"; render(); toast(`${o.number || "Order"} removed. Restore it from Show: Removed.`); return;
+    }
+    if (act === "restoreorder") {
+      const r = (S.removed || []).find((x) => x.id === a.dataset.id); if (!r) return;
+      a.disabled = true;
+      const { data, error } = await sb.from("orders").update({ removed_at: null }).eq("id", r.id).select("id");
+      if (error || !(data || []).length) { toast(error ? errMsg(error) : "Only admins can restore orders."); a.disabled = false; return; }
+      await loadAll(); render(); toast(`${r.number || "Order"} restored.`); return;
     }
     if (act === "gotoact") {
       const o3 = currentCustomerOrder();
