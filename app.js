@@ -53,7 +53,7 @@
   const ipmOptions = (cur) => `<option value="">— None —</option>${(S.team || []).filter((t) => t.role === "ipm").map((t) => `<option value="${e(t.email)}" ${t.email === cur ? "selected" : ""}>${e(t.name || t.email)}</option>`).join("")}`;
   function topbar() {
     const r = route();
-    const tabs = S.staff ? `<nav class="tabs">${S.manager ? `<a href="#/manager" class="${r.page === "manager" || r.page === "new" ? "on" : ""}">Admin</a>` : ""}<a href="#/" class="${r.page === "" || r.page === "order" ? "on" : ""}">Orders</a>${S.ipm ? "" : `<a href="#/customers" class="${r.page === "customers" ? "on" : ""}">Customers</a><a href="#/team" class="${r.page === "team" ? "on" : ""}">Team</a>`}</nav>` : "";
+    const tabs = S.staff ? `<nav class="tabs">${S.manager ? `<a href="#/manager" class="${r.page === "manager" || r.page === "new" ? "on" : ""}">Admin</a><a href="#/quotes" class="${r.page === "quotes" ? "on" : ""}">Install Quotes</a>` : ""}<a href="#/" class="${r.page === "" || r.page === "order" ? "on" : ""}">Orders</a>${S.ipm ? "" : `<a href="#/customers" class="${r.page === "customers" ? "on" : ""}">Customers</a><a href="#/team" class="${r.page === "team" ? "on" : ""}">Team</a>`}</nav>` : "";
     return `<div class="topbar"><div class="brand">Zpar <span>Connect</span></div>${tabs}<span class="sp"></span>
       <span class="who">${e(S.session.user.email)}${S.staff ? " · " + ROLE_LABEL[S.role] : ""}</span><button class="btn" type="button" data-act="signout">Sign out</button></div>`;
   }
@@ -713,6 +713,7 @@ a.btn{text-decoration:none;display:inline-block}
     else if (r.page === "team" && !S.ipm) app.innerHTML = teamView();
     else if (r.page === "new" && S.manager) app.innerHTML = newProjectView();
     else if (r.page === "manager" && S.manager) app.innerHTML = managerView();
+    else if (r.page === "quotes" && S.manager && window.ZPQ) app.innerHTML = window.ZPQ.view(r);
     else if (r.page === "order") {
       const o = S.orders.find((x) => x.id === r.id);
       if (!o) app.innerHTML = `${topbar()}<div class="card empty">Order not found.</div>`;
@@ -992,6 +993,9 @@ a.btn{text-decoration:none;display:inline-block}
     }
   });
   document.addEventListener("keydown", (ev) => { if (ev.key === "Enter" && ev.target.matches && ev.target.matches("tr[data-open]")) location.hash = "#/order/" + ev.target.dataset.open; });
+
+  // Shared with quotes.js (Install Quotes, Admins only)
+  window.ZPC = { sb, S, topbar, e, toast, money, errMsg, fmtD, render };
 
   // ---------- boot ----------
   async function boot(session) {
