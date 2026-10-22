@@ -200,6 +200,8 @@ details summary::-webkit-details-marker{display:none}
 .tablebox td.mono{white-space:nowrap}
 .tablebox td:nth-child(2){min-width:200px}
 .tablebox .mini i{width:9px}
+/* install quotes */
+@media print{.topbar,.iq-noprint,.toast{display:none!important}body{background:#fff}.wrap{padding:0}.card{break-inside:avoid;border-color:#ccc}}
 </style>
 </head>
 <body>
@@ -207,6 +209,7 @@ details summary::-webkit-details-marker{display:none}
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
+<script src="quotes.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
