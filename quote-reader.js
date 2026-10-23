@@ -18,25 +18,36 @@
   const half = (x) => Math.ceil(x * 2) / 2;
 
   // ---------- day rules (per unit) ----------
+  // Defaults below; admins can change every value on Install Quotes → Rates (stored with the rates).
+  const DAY_DEFAULTS = {
+    day_openface: 1.5, day_openface_large: 2, day_openface_face_sqft: 200, day_prep: 2,
+    day_enc_small: 3.5, day_enc_small_sqft: 400, day_enc_med: 5, day_enc_med_sqft: 600, day_enc_step: 0.5, day_enc_step_sqft: 150,
+    day_oven_s: 3, day_oven_s_sqft: 100, day_oven_m: 4, day_oven_m_sqft: 300, day_oven_l: 5,
+    day_amu: 2, day_stack: 1, day_roof: 1, day_roof_ft: 30, day_ibeam: 1, day_pit: 1, day_insulated: 1, day_supply: 1, day_recirc: 0.5, day_door: 0.5,
+    wire_openface: 1, wire_prep: 1.5, wire_enc: 2, wire_oven: 3, wire_amu: 1.5, wire_fan: 0.5, wire_lel: 1, wire_autobal: 0.5, wire_switches: 0.5, wire_lights: 0.5, wire_lights_over: 24,
+  };
+  let D = { ...DAY_DEFAULTS };
+  const setRules = (rules) => { D = { ...DAY_DEFAULTS }; for (const k of Object.keys(DAY_DEFAULTS)) if (rules && rules[k] !== undefined && rules[k] !== null && rules[k] !== "" && isFinite(Number(rules[k]))) D[k] = Number(rules[k]); };
   function unitDays(u) {
-    const why = [];
+    const why = [], fx = (x) => +Number(x).toFixed(2);
     let base;
-    if (u.kind === "chamber" || u.kind === "openface") { const face = u.w * u.h; base = face > 200 ? 2 : 1.5; why.push(`${u.label}: open-face/exhaust chamber (${Math.round(face)} sq ft face) ${base}d`); }
-    else if (u.kind === "prep" || u.kind === "mixroom") { base = 2; why.push(`${u.label}: prep station / mixing room 2d`); }
-    else if (u.kind === "oven") { const fl = u.w * u.l; base = fl <= 100 ? 3 : fl <= 300 ? 4 : 5; why.push(`${u.label}: oven (${Math.round(fl)} sq ft) ${base}d`); }
-    else { const fl = u.w * u.l; base = !fl ? 4 : fl <= 400 ? 3.5 : fl <= 600 ? 5 : 5 + Math.ceil((fl - 600) / 150) * 0.5; why.push(`${u.label}: enclosed booth (${Math.round(fl)} sq ft floor) ${base}d`); }
+    if (u.kind === "chamber" || u.kind === "openface") { const face = u.w * u.h; base = face > D.day_openface_face_sqft ? D.day_openface_large : D.day_openface; why.push(`${u.label}: open-face/exhaust chamber (${Math.round(face)} sq ft face) ${base}d`); }
+    else if (u.kind === "prep" || u.kind === "mixroom") { base = D.day_prep; why.push(`${u.label}: prep station / mixing room ${base}d`); }
+    else if (u.kind === "oven") { const fl = u.w * u.l; base = fl <= D.day_oven_s_sqft ? D.day_oven_s : fl <= D.day_oven_m_sqft ? D.day_oven_m : D.day_oven_l; why.push(`${u.label}: oven (${Math.round(fl)} sq ft) ${base}d`); }
+    else { const fl = u.w * u.l; base = !fl ? D.day_enc_med - 1 : fl <= D.day_enc_small_sqft ? D.day_enc_small : fl <= D.day_enc_med_sqft ? D.day_enc_med : D.day_enc_med + Math.ceil((fl - D.day_enc_med_sqft) / (D.day_enc_step_sqft || 150)) * D.day_enc_step; why.push(`${u.label}: enclosed booth (${Math.round(fl)} sq ft floor) ${fx(base)}d`); }
     let d = base;
-    if (u.ibeam) { d += 1; why.push("I-beam structure +1d"); }
-    if (u.pit) { d += 1; why.push("downdraft pit/basement +1d"); }
-    if (u.insulated) { d += 1; why.push("double-skin insulated panels +1d"); }
-    if (u.supply) { d += u.supply; why.push(`supply chamber +${u.supply}d`); }
-    if (u.amu) { d += 2 * u.amu; why.push(`${u.amu} AMU set + duct through roof +${2 * u.amu}d`); }
-    if (u.stacks) { d += u.stacks; why.push(`${u.stacks} exhaust stack(s) through roof +${u.stacks}d`); }
-    if (u.roof > 30 && (u.stacks || u.amu)) { d += 1; why.push(`roof ${Math.round(u.roof)}' (over 30') +1d`); }
-    if (u.recirc) { d += 0.5 * u.recirc; why.push(`${u.recirc} recirc fan/duct +${0.5 * u.recirc}d`); }
-    if (u.doors) { d += 0.5 * u.doors; why.push(`${u.doors} bi-fold/tri-fold door(s) +${0.5 * u.doors}d`); }
-    let w = { chamber: 1, openface: 1, prep: 1.5, mixroom: 1.5, oven: 3 }[u.kind] ?? 2;
-    w += 1.5 * (u.amu || 0) + 0.5 * ((u.fans || 0) + (u.recirc || 0)) + (u.lel ? 1 : 0) + (u.autobalance ? 0.5 : 0) + (u.doorSwitches ? 0.5 : 0) + ((u.lights || 0) > 24 ? 0.5 : 0);
+    const add = (on, days, text) => { if (on && days) { d += days; why.push(`${text} +${fx(days)}d`); } };
+    add(u.ibeam, D.day_ibeam, "I-beam structure");
+    add(u.pit, D.day_pit, "downdraft pit/basement");
+    add(u.insulated, D.day_insulated, "double-skin insulated panels");
+    add(u.supply, (u.supply || 0) * D.day_supply, "supply chamber");
+    add(u.amu, (u.amu || 0) * D.day_amu, `${u.amu} AMU set + duct through roof`);
+    add(u.stacks, (u.stacks || 0) * D.day_stack, `${u.stacks} exhaust stack(s) through roof`);
+    add(u.roof > D.day_roof_ft && (u.stacks || u.amu), D.day_roof, `roof ${Math.round(u.roof)}' (over ${D.day_roof_ft}')`);
+    add(u.recirc, (u.recirc || 0) * D.day_recirc, `${u.recirc} recirc fan/duct`);
+    add(u.doors, (u.doors || 0) * D.day_door, `${u.doors} bi-fold/tri-fold door(s)`);
+    let w = { chamber: D.wire_openface, openface: D.wire_openface, prep: D.wire_prep, mixroom: D.wire_prep, oven: D.wire_oven }[u.kind] ?? D.wire_enc;
+    w += D.wire_amu * (u.amu || 0) + D.wire_fan * ((u.fans || 0) + (u.recirc || 0)) + (u.lel ? D.wire_lel : 0) + (u.autobalance ? D.wire_autobal : 0) + (u.doorSwitches ? D.wire_switches : 0) + ((u.lights || 0) > D.wire_lights_over ? D.wire_lights : 0);
     return { install: half(d), wiring: half(w), why: why.join(", ") };
   }
 
@@ -181,7 +192,8 @@
       project: names.join(" + "), roof: roofAny, amuStartup };
   }
 
-  function parse(text) {
+  function parse(text, rules) {
+    setRules(rules);
     const t = String(text || "");
     const r = /Global Finishing Solutions|GFS Product Based Model/i.test(t) ? parseGFS(t) : /\bRTT\b/.test(t) ? parseRTT(t) : null;
     if (!r) return null;
@@ -207,6 +219,6 @@
     } catch (_) { return null; }
   }
 
-  const api = { parse, milesFromZip, unitDays };
+  const api = { parse, milesFromZip, unitDays, DAY_DEFAULTS };
   if (typeof module !== "undefined") module.exports = api; else window.ZPQR = api;
 })();
