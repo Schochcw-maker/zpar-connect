@@ -23,7 +23,22 @@
       ["w_gas_mile", "Gas per mile", "$"], ["hotel_day", "Hotel per day on location", "$"], ["w_food_day", "Food per day on location", "$"],
       ["w_truck_ins_day", "Truck insurance per day on location", "$"], ["helper_travel_day", "Helper travel per day on location", "$"]]],
     ["Electrical material (per device)", MATS.map(([k, l]) => ["mat_" + k, l, "$"])],
-    ["Travel rules", [["miles_per_drive_day", "Driving miles per travel day"], ["mile_buffer_pct", "Local-miles buffer on round trip", "%"]]],
+    ["Travel rules", [["miles_per_drive_day", "Driving miles per travel day"], ["mile_buffer_pct", "Local-miles buffer on round trip", "%"],
+      ["flight_after_days", "Add flights when days on location exceed", "days"]]],
+    ["Install day rules — working days per unit (4-person crew)", [
+      ["day_openface", "Open-face booth / exhaust chamber", "days"], ["day_openface_large", "Open-face / chamber, large face", "days"], ["day_openface_face_sqft", "…large when face area is over", "sq ft"],
+      ["day_prep", "Prep station / paint mix room", "days"],
+      ["day_enc_small", "Enclosed booth, small", "days"], ["day_enc_small_sqft", "…small up to floor area", "sq ft"],
+      ["day_enc_med", "Enclosed booth, medium", "days"], ["day_enc_med_sqft", "…medium up to floor area", "sq ft"],
+      ["day_enc_step", "Larger enclosed booths add", "days"], ["day_enc_step_sqft", "…for every additional", "sq ft"],
+      ["day_oven_s", "Oven, small", "days"], ["day_oven_s_sqft", "…small up to", "sq ft"], ["day_oven_m", "Oven, medium", "days"], ["day_oven_m_sqft", "…medium up to", "sq ft"], ["day_oven_l", "Oven, large", "days"],
+      ["day_amu", "Each AMU set + duct through roof", "days"], ["day_stack", "Each exhaust stack through roof", "days"], ["day_roof", "High roof (with roof work)", "days"], ["day_roof_ft", "…high roof is over", "ft"],
+      ["day_ibeam", "I-beam structure", "days"], ["day_pit", "Downdraft pit / basement", "days"], ["day_insulated", "Double-skin insulated panels", "days"],
+      ["day_supply", "Each supply chamber", "days"], ["day_recirc", "Each recirc fan + duct", "days"], ["day_door", "Each bi-fold / tri-fold door", "days"]]],
+    ["Wiring day rules — per unit", [
+      ["wire_openface", "Open-face booth / chamber", "days"], ["wire_prep", "Prep station / mix room", "days"], ["wire_enc", "Enclosed booth", "days"], ["wire_oven", "Oven", "days"],
+      ["wire_amu", "Each AMU", "days"], ["wire_fan", "Each fan (exhaust or recirc)", "days"], ["wire_lel", "LEL sensor system", "days"], ["wire_autobal", "Auto-balance / VFD", "days"],
+      ["wire_switches", "Door limit switches", "days"], ["wire_lights", "Many lights", "days"], ["wire_lights_over", "…many lights means more than", "lights"]]],
     ["Market, overhead & margins", [["market_pct", "Market adjustment (applied to all costs; use − for decreases)", "%"], ["overhead_pct", "Overhead (added after market adjustment)", "%"],
       ["margin_low_pct", "Lower margin", "%"], ["margin_high_pct", "Higher margin", "%"]]],
   ];
@@ -130,14 +145,16 @@
   const lines = (a) => (Array.isArray(a) ? a : []).join("\n");
   const unlines = (s) => String(s || "").split("\n").map((x) => x.replace(/^\s*[-•]\s*/, "").trim()).filter(Boolean);
   const rOf = (q) => (q && q.rates) || Q.rates || {};
-  const sameRates = (a, b) => JSON.stringify(a || {}) === JSON.stringify(b || {});
+  const normR = (o) => JSON.stringify(Object.keys(o || {}).sort().map((k) => [k, Number(o[k])]));
+  const sameRates = (a, b) => normR(a) === normR(b);
+  const withDefaults = (v) => ({ flight_after_days: 42, ...((window.ZPQR && window.ZPQR.DAY_DEFAULTS) || {}), ...(v || {}) });
 
   async function loadRates() {
     if (Q.rates !== null) return;
     Q.rates = undefined;
     const { data, error } = await Z().sb.from("install_settings").select("*").eq("key", "rates").maybeSingle();
     if (error || !data) { Q.rates = false; Q.err = error ? Z().errMsg(error) : "No rates set up yet. Run supabase/install_rates.sql."; }
-    else { Q.rates = data.value; Q.ratesMeta = { by: data.updated_by, at: data.updated_at }; }
+    else { Q.rates = withDefaults(data.value); Q.ratesMeta = { by: data.updated_by, at: data.updated_at }; }
     rerender();
   }
   async function loadList() {
@@ -200,7 +217,8 @@
         <p class="meta" style="margin:6px 0 0">Used for new quotes and when you reprice a saved quote. Saved quotes keep the rates they were priced with. Admins only — rates are stored in the database, not in the website code.${meta.at ? ` Last changed ${fmtD(meta.at)} by ${e(meta.by || "")}.` : ""}</p></div>
       ${RATE_GROUPS.map(([title, fields]) => `<div class="card"><div class="eyebrow">${e(title)}</div><div class="cl-fields" style="max-width:none;margin-top:12px">
         ${fields.map(([k, label, unit]) => `<label class="f" for="rt_${k}">${e(label)}${unit ? ` <span class="meta" style="font-weight:400">(${unit})</span>` : ""}<input id="rt_${k}" type="number" step="any" inputmode="decimal" data-rt="${k}" value="${e(D[k] ?? 0)}"></label>`).join("")}</div>
-        ${title.startsWith("Market") ? `<p class="meta" style="margin:10px 0 0">Cost = calculator total × (1 + market %) × (1 + overhead %). Sell = cost ÷ (1 − margin).</p>` : ""}</div>`).join("")}
+        ${title.startsWith("Market") ? `<p class="meta" style="margin:10px 0 0">Cost = calculator total × (1 + market %) × (1 + overhead %). Sell = cost ÷ (1 − margin).</p>` : ""}
+        ${title.startsWith("Install day") ? `<p class="meta" style="margin:10px 0 0">Used by “Read quote (free)” to propose install days. Per unit: base by type and size, plus the add-ons that apply, rounded up to the half day, times the quantity. You can still change the days on each quote.</p>` : ""}</div>`).join("")}
       ${Q.err ? `<p class="err">${e(Q.err)}</p>` : ""}
       <div class="row"><span class="sp"></span><button class="btn" type="button" data-q="rates-reset" ${changed ? "" : "disabled"}>Undo changes</button>
         <button class="btn go" type="button" data-q="rates-save" ${changed && !Q.busy ? "" : "disabled"}>${Q.busy === "rates" ? "Saving…" : "Save rates"}</button></div></div>`;
@@ -321,7 +339,7 @@
       counts: { ...blankInputs().counts, ...Object.fromEntries(Object.entries(r.counts || {}).filter(([k]) => k in blankInputs().counts).map(([k, v]) => [k, num(v)])) },
       welding_days: num((r.extras || {}).welding_days), overhead_sqft: num((r.extras || {}).overhead_door_sqft), amu_units: num((r.extras || {}).amu_startup_units),
     });
-    const weeks6 = derive(i, R).onLoc > 42;
+    const weeks6 = derive(i, R).onLoc > (num(R.flight_after_days) || 42);
     i.flight_tickets = weeks6 ? num(R.crew_size) : 0;
     if (!q.quote_number && r.quote_number_found) q.quote_number = r.quote_number_found;
     if (!q.customer_name && r.customer_found) q.customer_name = r.customer_found;
@@ -329,7 +347,7 @@
     if (!q.site && r.site) q.site = r.site;
     if (fileName) q.source_file = fileName;
     q.extraction = { scope: r.scope || [], day_reasoning: r.day_reasoning || [], reader,
-      flags: [...(r.flags || []), ...(weeks6 ? [`Job runs over 6 weeks: ${num(R.crew_size)} flight tickets (1 trip home per crew member) added by default`] : [])], analyzed_at: new Date().toISOString() };
+      flags: [...(r.flags || []), ...(weeks6 ? [`Over ${num(R.flight_after_days) || 42} days on location: ${num(R.crew_size)} flight tickets (1 trip home per crew member) added by default`] : [])], analyzed_at: new Date().toISOString() };
   }
   async function fillMiles(silent) {
     const zip = ((Q.cur.site || "").match(/\b(\d{5})\b/) || [])[1];
@@ -345,7 +363,7 @@
     Q.err = ""; Q.busy = "read"; Q.busyMsg = "Reading the file…"; rerender();
     try {
       const text = await extractText(f);
-      const r = window.ZPQR && window.ZPQR.parse(text);
+      const r = window.ZPQR && window.ZPQR.parse(text, rOf(Q.cur));
       if (!r) throw new Error("This doesn't look like a GFS or RTT quote. Use “Paste results from a Claude chat” or enter it manually.");
       applyResult(r, `free ${r.vendor} reader`, f.name);
       if (r.zip) await fillMiles(true);
@@ -416,7 +434,7 @@
     const { data, error } = await sb.from("install_settings").update({ value: D }).eq("key", "rates").select("*");
     Q.busy = "";
     if (error || !(data || []).length) { Q.err = error ? errMsg(error) : "Rates were not saved."; rerender(); return; }
-    Q.rates = data[0].value; Q.ratesDraft = { ...Q.rates }; Q.ratesMeta = { by: data[0].updated_by, at: data[0].updated_at };
+    Q.rates = withDefaults(data[0].value); Q.ratesDraft = { ...Q.rates }; Q.ratesMeta = { by: data[0].updated_by, at: data[0].updated_at };
     toast("Rates saved. New quotes will use them.");
     rerender();
   }
