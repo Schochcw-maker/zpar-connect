@@ -28,12 +28,15 @@
     let d = base;
     if (u.ibeam) { d += 1; why.push("I-beam structure +1d"); }
     if (u.pit) { d += 1; why.push("downdraft pit/basement +1d"); }
+    if (u.insulated) { d += 1; why.push("double-skin insulated panels +1d"); }
     if (u.supply) { d += u.supply; why.push(`supply chamber +${u.supply}d`); }
     if (u.amu) { d += 2 * u.amu; why.push(`${u.amu} AMU set + duct through roof +${2 * u.amu}d`); }
     if (u.stacks) { d += u.stacks; why.push(`${u.stacks} exhaust stack(s) through roof +${u.stacks}d`); }
     if (u.roof > 30 && (u.stacks || u.amu)) { d += 1; why.push(`roof ${Math.round(u.roof)}' (over 30') +1d`); }
+    if (u.recirc) { d += 0.5 * u.recirc; why.push(`${u.recirc} recirc fan/duct +${0.5 * u.recirc}d`); }
+    if (u.doors) { d += 0.5 * u.doors; why.push(`${u.doors} bi-fold/tri-fold door(s) +${0.5 * u.doors}d`); }
     let w = { chamber: 1, openface: 1, prep: 1.5, mixroom: 1.5, oven: 3 }[u.kind] ?? 2;
-    w += 1.5 * (u.amu || 0) + 0.5 * (u.fans || 0) + (u.autobalance ? 0.5 : 0) + (u.doorSwitches ? 0.5 : 0) + ((u.lights || 0) > 24 ? 0.5 : 0);
+    w += 1.5 * (u.amu || 0) + 0.5 * ((u.fans || 0) + (u.recirc || 0)) + (u.lel ? 1 : 0) + (u.autobalance ? 0.5 : 0) + (u.doorSwitches ? 0.5 : 0) + ((u.lights || 0) > 24 ? 0.5 : 0);
     return { install: half(d), wiring: half(w), why: why.join(", ") };
   }
 
@@ -92,69 +95,97 @@
   }
 
   // ---------- RTT ----------
+  // RTT quotes can hold several equipment sections, each starting with "RTT is pleased to offer..."
+  // and each with its own line-item table, total, quantity ("Total x2" / "-(3) Booth Required") and upgrades.
   function parseRTT(text) {
-    const lines = text.split("\n");
+    const all = text.split("\n");
+    const starts = all.map((l, i) => (/RTT is pleased to offer/i.test(l) ? i : -1)).filter((i) => i >= 0);
+    if (!starts.length) starts.push(0);
     const counts = { lights: 0, amu: 0, rollup_doors: 0, solenoid: 0, door_switches: 0, dust_collector: 0, panels: 0, exhaust_fans: 0, recirc_fans: 0, probes: 0, air_seals: 0 };
-    const scope = [], flags = [], reasoning = [];
-    const multLine = lines.findIndex((l) => /Total\s*x\s*\d+/i.test(l));
-    const mult = multLine >= 0 ? n(lines[multLine].match(/Total\s*x\s*(\d+)/i)[1]) : 1;
-    const totalLine = lines.findIndex((l) => /^\s*Total\s*\|/i.test(l));
-    const items = []; // {qty, part, desc, base}
-    lines.forEach((l, i) => { const m = l.match(/^\s*(\d+)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|/); if (m) items.push({ qty: Number(m[1]), part: m[2].trim(), desc: m[3].trim(), base: totalLine < 0 || i < totalLine }); });
-    const sum = (re, base = true) => items.filter((it) => (!base || it.base) && (re.test(it.part) || re.test(it.desc))).reduce((a, it) => a + it.qty, 0);
-    const boothRe = /booth|exhaust chamber|prep station|mixing room|oven|sanding|grinding/i;
-    const booths = items.filter((it) => it.base && boothRe.test(it.desc) && !/supply chamber/i.test(it.desc));
-    const supply = sum(/supply chamber|^ISC/i);
-    const amu = sum(/make-?up|dump unit|\bAMU\b|^CT-\d/i) - sum(/duct/i);
-    const narrFans = [...text.matchAll(/\((\d+)\)\s*[\d.]+\s*(?:in|")[^\n]{0,40}?Exhaust Fan/gi)].reduce((a, m) => a + Number(m[1]), 0);
-    const fans = narrFans || sum(/exhaust fan|fan kit/i);
-    const lights = sum(/light|LED fixture/i) || [...text.matchAll(/\((\d+)\)[^\n.]{0,60}light fixture/gi)].reduce((a, m) => a + Number(m[1]), 0);
-    const stacks = sum(/automatic roof vent|^ARV/i) || sum(/roof flange|^PRF/i) || (/roof/i.test(text) ? fans : 0);
-    const switches = sum(/door switch|limit switch/i);
-    const solenoid = sum(/solenoid/i, false);
-    const panelsListed = sum(/control panel/i, false);
-    const roof = n((text.match(/typical\s+(\d+)\s*'/i) || [])[1]);
-    const d = dims((text.match(/Interior working dimensions of:\s*([^.]+?long)/i) || [])[1]);
-    const perBooth = Math.max(1, booths.reduce((a, b) => a + b.qty, 0));
-    const kindOf = (s) => /oven/i.test(s) ? "oven" : /exhaust chamber|open face/i.test(s) ? "chamber" : /prep/i.test(s) ? "prep" : /mixing/i.test(s) ? "mixroom" : "enclosed";
-    let inst = 0, wir = 0;
-    (booths.length ? booths : [{ qty: 1, part: "booth", desc: "booth" }]).forEach((b, k) => {
-      const share = (x) => (k === 0 ? x : 0); // attach AMU/stacks/supply to the first booth line
-      const u = unitDays({ label: `${b.part}`, kind: kindOf(b.desc), ...d, amu: share(amu), stacks: share(stacks), supply: share(supply), roof, fans: share(fans), doorSwitches: share(switches), lights: share(lights) });
-      inst += u.install * b.qty; wir += u.wiring * b.qty; reasoning.push(`${u.why} = ${u.install} install days; wiring ${u.wiring}d${b.qty > 1 ? ` (x${b.qty})` : ""}`);
-      scope.push(`RTT ${b.part}: ${b.desc}${fmtDims(d) ? ` — ${fmtDims(d)} interior` : ""}`);
+    const scope = [], flags = [], reasoning = [], names = [];
+    let inst = 0, wir = 0, amuStartup = 0, helper = 0, roofAny = 0;
+    const sumN = (re, s) => [...String(s).matchAll(re)].reduce((a, m) => a + Number(m[1]), 0);
+    starts.forEach((st, k) => {
+      const from = k === 0 ? 0 : st - 1, to = k + 1 < starts.length ? starts[k + 1] - 1 : all.length;
+      const lines = all.slice(Math.max(0, from), to), narr = lines.join("\n");
+      let title = ""; for (let i = st - 1; i >= Math.max(0, st - 3); i--) if (all[i] && all[i].trim()) { title = all[i].trim(); break; }
+      const totalAt = lines.findIndex((l) => /^\s*(Sub-?\s*Total|Total)\b[^\n]*\|/i.test(l));
+      const rows = [];
+      lines.forEach((l, i) => { const m = l.match(/^\s*(\d+)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|/); if (m) rows.push({ qty: Number(m[1]), part: m[2].trim(), desc: m[3].trim(), base: totalAt < 0 || i < totalAt }); });
+      const mm = narr.match(/Total\s*x\s*(\d+)/i) || narr.match(/-?\s*\((\d+)\)\s*Booths?\s+Required/i);
+      const mult = mm ? Number(mm[1]) : 1;
+      const perBoothUpg = /Equipment Upgrades:\s*\(Per Booth\)/i.test(narr);
+      const q = (r) => r.qty * (r.base || perBoothUpg ? 1 : 1); // quantity as listed
+      const sum = (re, onlyBase) => rows.filter((r) => (!onlyBase || r.base) && re.test(r.part + " " + r.desc)).reduce((a, r) => a + q(r), 0);
+      const sumUp = (re) => rows.filter((r) => !r.base && re.test(r.part + " " + r.desc)).reduce((a, r) => a + r.qty, 0);
+      const boothRow = rows.find((r) => r.base && /booth|chamber|mix room|mixing room|prep station|oven|shell|sanding|grinding/i.test(r.desc) && !/supply chamber|upgrade/i.test(r.part + " " + r.desc)) || rows[0] || { part: title, desc: title };
+      const label = (boothRow.part || "").replace(/\s+/g, " ");
+      const kindSrc = title + " " + boothRow.desc;
+      const kind = /oven/i.test(kindSrc) ? "oven" : /exhaust chamber/i.test(kindSrc) ? "chamber" : /mix(ing)? room/i.test(kindSrc) ? "mixroom" : /prep/i.test(kindSrc) ? "prep" : "enclosed";
+      const d = dims((narr.match(/Interior working dimensions of:\s*([^.]+?long)/i) || [])[1]);
+      const lightSentence = (narr.match(/A total of[^\n]*?light fixtures/i) || [""])[0];
+      const lights = sumN(/\((\d+)\)/g, lightSentence) || sum(/light fixture|LED fixture/i, true);
+      const fans = sumN(/\((\d+)\)[^\n(]{0,60}?exhaust fan/gi, narr) || sum(/exhaust fan|fan kit/i, true);
+      const recirc = sumN(/\((\d+)\)[^\n(]{0,60}?recirc(?:ulation)? fan/gi, narr);
+      const personnel = sumN(/\((\d+)\)\s*-\s*Personnel Access Door/gi, narr);
+      const isAmu = (r) => /\bAMU|make-?up|dump unit|^CTC?-\d/i.test(r.part + " " + r.desc) && !/duct|start\s*-?\s*up|mixing box|recirc|upgrade/i.test(r.part + " " + r.desc);
+      const amu = rows.filter((r) => r.base && isAmu(r)).reduce((a, r) => a + r.qty, 0);
+      const rttStartup = rows.some((r) => /start\s*-?\s*up/i.test(r.part + " " + r.desc) && /\$\s*[1-9]/.test(lines.find((l) => l.includes(r.part)) || ""));
+      const upgMult = perBoothUpg ? 1 : 1 / mult; // upgrade lines not marked "per booth" are for the whole section
+      const switchesBase = sum(/limit switch/i, true), switchesUp = sumUp(/limit switch/i);
+      const switches = switchesBase + switchesUp * upgMult;
+      const solenoid = sumUp(/solenoid/i) * upgMult + sum(/solenoid/i, true);
+      const panelRows = rows.filter((r) => /control panel/i.test(r.part + " " + r.desc) && !/upgrade/i.test(r.part)).reduce((a, r) => a + r.qty, 0);
+      const lel = rows.filter((r) => /\bLEL\b/i.test(r.part + " " + r.desc) && !/upgrade/i.test(r.part)).reduce((a, r) => a + r.qty, 0);
+      const autobalance = /pressure balancing|auto(matic)?\s*-?\s*balanc/i.test(narr) ? 1 : 0;
+      const proving = /filter proving switch/i.test(narr) ? 1 : 0;
+      let panels = panelRows + amu;
+      const assumedPanel = !panelRows && !amu && fans > 0;
+      if (assumedPanel) panels = 1;
+      const stacks = sum(/automatic roof vent|^ARV/i, true) || sum(/roof flange/i, true);
+      const doors = rows.filter((r) => /bi-?\s*fold|tri-?\s*fold/i.test(r.part + " " + r.desc)).reduce((a, r) => a + r.qty, 0) * (perBoothUpg ? 1 : 1 / mult);
+      const insulated = rows.some((r) => /double skin|insulated/i.test(r.desc) && /booth|panel|skin/i.test(r.desc)) ? 1 : 0;
+      const roof = n((narr.match(/typical\s+(\d+)\s*'/i) || [])[1]);
+      if (roof) roofAny = Math.max(roofAny, roof);
+      const supply = sum(/supply chamber|^ISC/i, true);
+      const u = unitDays({ label, kind, ...d, amu, stacks, supply, roof, fans, recirc, insulated, doors, lel, autobalance, doorSwitches: switches, lights });
+      inst += u.install * mult; wir += u.wiring * mult;
+      reasoning.push(`${u.why} = ${u.install} install days; wiring ${u.wiring}d${mult > 1 ? ` (x${mult} = ${u.install * mult} / ${u.wiring * mult})` : ""}`);
+      const per = (x) => x * mult;
+      counts.lights += per(lights); counts.amu += per(amu); counts.exhaust_fans += per(fans); counts.recirc_fans += per(recirc);
+      counts.door_switches += Math.round(per(switches)); counts.solenoid += Math.round(per(solenoid)); counts.panels += per(panels); counts.probes += per(lel + autobalance + proving);
+      if (kind !== "prep" && kind !== "mixroom") helper = 1;
+      amuStartup += rttStartup ? 0 : per(amu);
+      const dimTxt = fmtDims(d);
+      names.push(`${mult > 1 ? `(${mult}) ` : ""}${label}`);
+      scope.push(`${mult > 1 ? `(${mult}) ` : ""}RTT ${label} — ${title || boothRow.desc}${dimTxt ? `, ${dimTxt}` : ""}: ${[lights && `${lights} lights`, fans && `${fans} exhaust fan(s)`, recirc && `${recirc} recirc fan(s)`, amu && `${amu} AMU`, personnel && `${personnel} personnel door(s)`, switches && `${Math.round(switches)} limit switches`, panels && `${panels} panel(s)`, lel && "LEL sensors", stacks && `${stacks} roof stack(s)`, doors && `${doors} folding door(s)`].filter(Boolean).join(", ")}${mult > 1 ? " — each" : ""}`);
+      if (rttStartup) flags.push(`${label}: RTT start-up is in the equipment price — no ZPar AMU startup trip budgeted for it`);
+      else if (amu) flags.push(`${label}: AMU start-up not in RTT's price — ZPar AMU startup trip budgeted`);
+      if (assumedPanel) flags.push(`${label}: no control panel line — assumed 1 panel`);
+      if (!switches && kind === "enclosed" && personnel) flags.push(`${label}: no limit switches listed — check doors`);
+      if (/dust collectors? by others/i.test(narr)) flags.push(`${label}: dust collectors by others — not wired or installed by ZPar unless added`);
+      if (/sharing common walls|share a common wall/i.test(narr)) flags.push(`${label}: shares common walls with other booths — install may go faster than estimated`);
+      if (lel) flags.push(`${label}: LEL sensor system with its own control panel — counted as a panel and a probe`);
+      if (/climate controlled|cooling|chilled|\bCW\b/i.test(narr)) flags.push(`${label}: climate-controlled AMU (cooling) — confirm who handles refrigeration/chilled-water piping`);
+      if (mult > 1 && !perBoothUpg && rows.some((r) => !r.base)) flags.push(`${label}: upgrade lines aren't marked "per booth" — treated as for all ${mult} units; verify`);
     });
-    if (supply) scope.push(`${supply} supply chamber(s)`);
-    if (amu) scope.push(`${amu} AMU: ${(items.find((it) => /^CT-|make-?up|dump unit/i.test(it.part + " " + it.desc)) || {}).desc || ""}`.trim());
-    if (fans) scope.push(`${fans} exhaust fan(s)${stacks ? `, ${stacks} roof stack(s)` : ""}${roof ? `, ~${roof}' roof` : ""}`);
-    if (lights) scope.push(`${lights} light fixture(s)`);
-    const panels = panelsListed || amu || (fans ? perBooth : 0);
-    Object.assign(counts, { lights, amu, exhaust_fans: fans, door_switches: switches, solenoid, panels });
-    if (mult > 1) {
-      for (const k of Object.keys(counts)) if (k !== "solenoid") counts[k] *= mult;
-      inst *= mult; wir *= mult;
-      scope.unshift(`Quote is for ${mult} identical systems ("Total x${mult}")`);
-      reasoning.push(`x${mult} systems = ${inst} install days, ${wir} wiring days`);
-      flags.push(`RTT quote shows "Total x${mult}": counts and days were multiplied by ${mult}. Upgrade lines (solenoid qty ${solenoid}) were not — verify.`);
-    }
-    if (!panelsListed && panels) flags.push(`No control panel line found: assumed ${counts.panels} panel(s) (one per AMU / fan system${mult > 1 ? `, x${mult} systems` : ""})`);
-    if (!switches && booths.some((b) => kindOf(b.desc) === "enclosed")) flags.push("Enclosed booth but no door switches listed — check doors and limit switches");
     if (/duct support by others/i.test(text)) flags.push("Duct supports by others (RTT)");
     if (/cutting, sealing, or framing of roof/i.test(text)) flags.push("Roof cutting/sealing/framing excluded by RTT — confirm who does it");
     if (/seismic/i.test(text)) flags.push("RTT equipment not designed for seismic/wind loads unless noted");
-    if (amu) flags.push("AMU start-up is not included in RTT's price — ZPar AMU startup trip budgeted");
-    if (roof) flags.push(`Duct quoted for a ~${roof}' roof — confirm actual roof height and lift`);
+    if (roofAny) flags.push(`Duct quoted for a ~${roofAny}' roof — confirm actual roof height and lift`);
     flags.push("RTT quotes don't state the job site — enter it to calculate miles");
+    if (starts.length > 1) flags.push(`${starts.length} equipment sections found in this quote — check each one`);
     flags.push("Read with the free rule-based reader: check every count and day estimate");
-    return { vendor: "RTT", counts, scope, flags, reasoning, zip: "", siteText: "", install: inst, wiring: wir, helper: booths.every((b) => /prep|mixing/i.test(b.desc)) ? 0 : 1,
-      project: `${mult > 1 ? `(${mult}) ` : ""}${booths.map((b) => `${b.qty > 1 ? b.qty + "x " : ""}${b.desc.replace(/\s+/g, " ")}`).join(" + ") || "RTT equipment"}${supply ? " + supply chamber" : ""}${amu ? " + AMU" : ""}`, roof };
+    if (starts.length > 1) reasoning.push(`Total: ${inst} install days, ${wir} wiring days`);
+    return { vendor: "RTT", counts, scope, flags, reasoning, zip: "", siteText: "", install: inst, wiring: wir, helper,
+      project: names.join(" + "), roof: roofAny, amuStartup };
   }
 
   function parse(text) {
     const t = String(text || "");
     const r = /Global Finishing Solutions|GFS Product Based Model/i.test(t) ? parseGFS(t) : /\bRTT\b/.test(t) ? parseRTT(t) : null;
     if (!r) return null;
-    const amuUnits = r.counts.amu;
+    const amuUnits = r.amuStartup ?? r.counts.amu;
     return {
       vendor: r.vendor, project: r.project, site: r.siteText ? (r.zip ? r.zip : "") : "", zip: r.zip,
       one_way_miles_from_dfw: 0, scope: r.scope, install_working_days: r.install, wiring_working_days: r.wiring, helper: r.helper, include_wiring: true,
